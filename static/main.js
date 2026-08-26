@@ -280,8 +280,59 @@ async function iniciarAplicacionAutenticada() {
     const moduloInicial = primerModuloPermitido();
     showModule(moduloInicial, false);
 }
-
 async function iniciarSesion(evento) {
+    evento.preventDefault();
+    const boton = document.getElementById('btn-iniciar-sesion');
+    const alerta = document.getElementById('login-mensaje');
+    const usuario = document.getElementById('login-usuario').value.trim();
+    const contrasena = document.getElementById('login-contrasena').value;
+    
+    if (!usuario || !contrasena) return;
+    
+    try {
+        boton.disabled = true;
+        boton.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Validando...';
+        alerta.classList.add('d-none');
+        
+        const respuesta = await fetch('/api/auth/login', { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify({ usuario, contrasena }) 
+        });
+        
+        const resultado = await respuesta.json().catch(() => ({}));
+        
+        if (!respuesta.ok) throw new Error(resultado.error || 'Usuario o contraseña inválidos.');
+        
+        sesionActual = normalizarSesion(resultado) || resultado;
+        if (!sesionActual) throw new Error('El servidor no devolvió una sesión válida.');
+        
+        document.getElementById('login-contrasena').value = '';
+        
+        // Cierre manual y contundente del modal de Bootstrap
+        const modalElement = document.getElementById('modalLogin');
+        const modalInstance = bootstrap.Modal.getInstance(modalElement);
+        if (modalInstance) {
+            modalInstance.hide();
+        }
+        
+        // Limpieza de capas oscuras de Bootstrap por si acaso
+        document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
+        document.body.classList.remove('modal-open');
+        document.body.style.overflow = '';
+        document.body.style.paddingRight = '';
+
+        await iniciarAplicacionAutenticada();
+        
+    } catch (error) {
+        alerta.textContent = error.message || 'No se pudo iniciar sesión.';
+        alerta.classList.remove('d-none');
+    } finally {
+        boton.disabled = false;
+        boton.innerHTML = '<i class="fa-solid fa-right-to-bracket me-2"></i>Iniciar sesión';
+    }
+}
+/* async function iniciarSesion(evento) {
     evento.preventDefault();
     const boton = document.getElementById('btn-iniciar-sesion');
     const alerta = document.getElementById('login-mensaje');
@@ -307,7 +358,7 @@ async function iniciarSesion(evento) {
         boton.disabled = false;
         boton.innerHTML = '<i class="fa-solid fa-right-to-bracket me-2"></i>Iniciar sesión';
     }
-}
+} */
 
 async function cerrarSesion() {
     try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (_) { /* La interfaz se cierra incluso sin respuesta. */ }
