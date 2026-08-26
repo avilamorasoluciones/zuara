@@ -1662,10 +1662,24 @@ window.onload = async () => {
     await cargarConfiguracion();
     sesionActual = await cargarSesionActual();
     if (sesionActual) {
+        cerrarModalLogin(); // <-- Cierra el modal si ya hay sesión activa
+        await iniciarAplicacionAutenticada();
+    } else {
+        actualizarSesionEnInterfaz();
+        aplicarPermisosInterfaz();
+        abrirModalLogin('Inicia sesión para acceder a Dashboard.');
+    }
+};
+
+/* window.onload = async () => {
+    inicializarUI();
+    await cargarConfiguracion();
+    sesionActual = await cargarSesionActual();
+    if (sesionActual) {
         await iniciarAplicacionAutenticada();
     } else {
         actualizarSesionEnInterfaz();
         aplicarPermisosInterfaz();
         abrirModalLogin();
     }
-};
+}; */
