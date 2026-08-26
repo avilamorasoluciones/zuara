@@ -179,6 +179,10 @@ def api_logout():
 
 # ----------------- RUTAS PRINCIPALES DEL SISTEMA -----------------
 
+@app.route('/ping')
+def ping_keep_alive():
+    return "OK", 200
+
 @app.route('/')
 def index(): 
     return render_template('index.html')
