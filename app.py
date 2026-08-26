@@ -121,34 +121,39 @@ def safe_int(val):
 
 @app.route('/api/auth/login', methods=['POST'])
 def api_login():
-    data = request.json
-    usuario = data.get('usuario')
-    contrasena = data.get('contrasena')
-    
-    conn = get_db_connection()
     try:
-        row = conn.execute("SELECT * FROM usuarios WHERE usuario = ?", (usuario,)).fetchone()
-        if row and check_password_hash(row['contrasena'], contrasena):
-            if not row['activo']:
-                return jsonify({'error': 'El usuario se encuentra inactivo.'}), 401
+        # force=True soluciona el error si el frontend no envía las cabeceras correctamente
+        data = request.get_json(force=True) 
+        usuario = data.get('usuario')
+        contrasena = data.get('contrasena')
+        
+        conn = get_db_connection()
+        try:
+            row = conn.execute("SELECT * FROM usuarios WHERE usuario = ?", (usuario,)).fetchone()
+            if row and check_password_hash(row['contrasena'], contrasena):
+                if not row['activo']:
+                    return jsonify({'error': 'El usuario se encuentra inactivo.'}), 401
+                    
+                # Parsear permisos desde el JSON almacenado
+                try: permisos_list = json.loads(row['permisos']) if row['permisos'] else []
+                except: permisos_list = []
                 
-            # Parsear permisos desde el JSON almacenado
-            try: permisos_list = json.loads(row['permisos']) if row['permisos'] else []
-            except: permisos_list = []
-            
-            session['usuario_id'] = row['id']
-            session['nombre'] = row['nombre']
-            session['usuario'] = row['usuario']
-            session['es_admin'] = row['es_admin']
-            session['permisos'] = permisos_list
-            
-            return jsonify({
-                'id': row['id'], 'nombre': row['nombre'], 'usuario': row['usuario'],
-                'es_admin': row['es_admin'], 'permisos': permisos_list
-            })
-        return jsonify({'error': 'Usuario o contraseña inválidos.'}), 401
-    finally:
-        conn.close()
+                session['usuario_id'] = row['id']
+                session['nombre'] = row['nombre']
+                session['usuario'] = row['usuario']
+                session['es_admin'] = row['es_admin']
+                session['permisos'] = permisos_list
+                
+                return jsonify({
+                    'id': row['id'], 'nombre': row['nombre'], 'usuario': row['usuario'],
+                    'es_admin': row['es_admin'], 'permisos': permisos_list
+                })
+            return jsonify({'error': 'Usuario o contraseña inválidos.'}), 401
+        finally:
+            conn.close()
+    except Exception as e:
+        # Si ocurre CUALQUIER error interno, ahora lo mostrará en tu pantalla
+        return jsonify({'error': f"Error interno detectado: {str(e)}"}), 500
 
 @app.route('/api/auth/sesion', methods=['GET'])
 def api_sesion():
