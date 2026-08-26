@@ -1,14 +1,31 @@
-let dataGlobal = { clientes: [], proveedores: [], almacenes: [], categorias: [], productos: [], existencias: [], kardex: [], ventas: [], tasas: [], lista_precios_dinamica: [], notas_credito: [], coberturas: [] };
+
+let dataGlobal = { clientes: [], proveedores: [], almacenes: [], categorias: [], productos: [], existencias: [], kardex: [], ventas: [], tasas: [], lista_precios_dinamica: [], notas_credito: [], coberturas: [], usuarios: [] };
 let configPag = { clientes: { pag: 1, filas: 10 }, proveedores: { pag: 1, filas: 10 }, almacenes: { pag: 1, filas: 10 }, categorias: { pag: 1, filas: 10 }, productos: { pag: 1, filas: 10 }, existencias: { pag: 1, filas: 10 }, kardex: { pag: 1, filas: 10 }, historial_ventas: { pag: 1, filas: 10 } };
 let carritoVentas = [];
 let tasaActualEur = 0;
 let stockPorAlmacenTemp = [];
 let notificacionesGlobales = {};
-let configSis = { permitir_descuentos: 'true', font_size: '14' };
+let configSis = { nombre_empresa: 'Dashboard', theme_color_1: '#af52de', theme_color_2: '#5e5ce6', font_family: "'Plus Jakarta Sans', sans-serif", permitir_descuentos: 'true', font_size: '14' };
 let idTasaPendienteBorrar = null;
 let itemsDevolucionTemporal = [];
 let notasCreditoClienteActual = [];
 let ncSeleccionadaParaPago = null;
+let sesionActual = null;
+let modalLoginInstancia = null;
+
+const PERMISOS = [
+    'panel', 'ventas', 'historial_ventas', 'clientes', 'proveedores', 'almacenes',
+    'categorias', 'productos', 'existencias', 'movimientos', 'kardex', 'parametros',
+    'lista_precios', 'reportes', 'configuracion', 'usuarios'
+];
+
+const PERMISO_POR_MODULO = {
+    panel: 'panel', ventas: 'ventas', historial_ventas: 'historial_ventas',
+    clientes: 'clientes', proveedores: 'proveedores', almacenes: 'almacenes',
+    categorias: 'categorias', productos: 'productos', existencias: 'existencias',
+    kardex: 'kardex', parametros: 'parametros', lista_precios: 'lista_precios',
+    reportes: 'reportes', configuracion: 'configuracion', usuarios: 'usuarios'
+};
 
 const modulosUI = [
     { id: 'clientes', icono: 'fa-users', titulo: 'Clientes', headers: ['Cédula/RIF', 'Nombre', 'Celular', 'Correo', 'Registro', 'Acciones'] },
@@ -26,11 +43,11 @@ function inicializarUI() {
     const contenedorModales = document.getElementById('modales-dinamicos');
          
     modulosUI.forEach(m => {
-        let btnNuevo = m.id !== 'existencias' && m.id !== 'kardex' && m.id !== 'historial_ventas' ? `<button class="btn btn-theme rounded-pill shadow bounce-hover px-4 py-2 fw-bold" onclick="abrirModal('${m.id}')">+ Nuevo</button>` : '';
+        let btnNuevo = m.id !== 'existencias' && m.id !== 'kardex' && m.id !== 'historial_ventas' ? `<button class="btn btn-theme rounded-pill shadow bounce-hover px-4 py-2 fw-bold" data-permiso-accion="${m.id}" onclick="abrirModal('${m.id}')">+ Nuevo</button>` : '';
         let btnExtra = m.id === 'historial_ventas' ? `<button class="btn btn-danger rounded-pill shadow bounce-hover px-4 py-2 fw-bold ms-2" onclick="abrirModalDevoluciones()"><i class="fa-solid fa-rotate-left"></i> Devoluciones por Venta</button>` : '';
                  
         contenedor.innerHTML += `
-            <div id="modulo-${m.id}" class="modulo-vista d-none">
+            <div id="modulo-${m.id}" class="modulo-vista d-none" data-permiso="${m.id}">
                 <div class="d-flex justify-content-between align-items-center mb-4"><h2 class="fw-bold titulo-modulo d-flex align-items-center"><span class="icon-bubble title-bubble shadow-sm me-3 text-theme-solid"><i class="fa-solid ${m.icono}"></i></span> ${m.titulo}</h2><div>${btnNuevo}${btnExtra}</div></div>
                 <div class="card ios-card border-0"><div class="card-body p-4">
                     <div class="d-flex justify-content-between align-items-center mb-4"><div class="d-flex align-items-center gap-2"><span class="small fw-bold text-muted">Mostrar</span><select class="form-select ios-input py-1 px-2 text-center fw-bold" id="filas-${m.id}" style="width: 80px;" onchange="cambiarFilas('${m.id}')"><option value="5">5</option><option value="10" selected>10</option><option value="20">20</option><option value="9999">Todas</option></select></div><input type="text" id="buscar-${m.id}" class="form-control ios-input w-50" placeholder="🔍 Buscar (por nombre, fecha, código)..." onkeyup="filtrarYPaginar('${m.id}')"></div>
@@ -83,27 +100,74 @@ function calcBrechaForm() {
     if(bin && eur) { document.getElementById('t_brecha_print').value = (((bin/eur)-1)*100).toFixed(2) + '%'; }
 }
 
-function cargarConfiguracion() {
-    const c1 = localStorage.getItem('themeC1') || '#af52de';
-    const c2 = localStorage.getItem('themeC2') || '#5e5ce6';
-    aplicarTemaCSS(c1, c2);
-    const nom = localStorage.getItem('companyName') || 'Dashboard';
-    document.getElementById('brand-name').innerText = nom;
-    document.getElementById('input-nombre-empresa').value = nom;
-    const fnt = localStorage.getItem('appFont') || "'Plus Jakarta Sans', sans-serif";
-    document.getElementById('app-body').style.fontFamily = fnt;
-    document.getElementById('selector-fuente').value = fnt;
+function escapeHTML(valor) {
+    return String(valor ?? '').replace(/[&<>'"]/g, caracter => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[caracter]);
 }
 
-function cambiarTema(c1, c2) { localStorage.setItem('themeC1', c1); localStorage.setItem('themeC2', c2); aplicarTemaCSS(c1, c2); }
+function normalizarPermisos(permisos) {
+    if (typeof permisos === 'string') {
+        try { permisos = JSON.parse(permisos); } catch (_) { permisos = permisos.split(',').map(p => p.trim()).filter(Boolean); }
+    }
+    if (Array.isArray(permisos)) return permisos.reduce((resultado, permiso) => ({ ...resultado, [permiso]: true }), {});
+    return permisos && typeof permisos === 'object' ? permisos : {};
+}
+
+function esAdministrador() { return Boolean(sesionActual && (sesionActual.es_admin || sesionActual.rol === 'ADMIN' || sesionActual.rol === 'ADMINISTRADOR')); }
+function tienePermiso(permiso) { return Boolean(sesionActual && (esAdministrador() || normalizarPermisos(sesionActual.permisos)[permiso])); }
+function primerModuloPermitido() { return PERMISOS.find(permiso => tienePermiso(permiso)) || 'panel'; }
+function exigirPermiso(permiso, mensaje = 'No tienes permiso para realizar esta operación.') {
+    if (!sesionActual) { abrirModalLogin(); return false; }
+    if (!tienePermiso(permiso)) { alert(mensaje); return false; }
+    return true;
+}
+
+function aplicarConfiguracionEnInterfaz(configuracion) {
+    configSis = { ...configSis, ...(configuracion || {}) };
+    const nombre = (configSis.nombre_empresa || configSis.company_name || 'Dashboard').trim() || 'Dashboard';
+    const fuente = configSis.font_family || configSis.app_font || "'Plus Jakarta Sans', sans-serif";
+    const tamanio = String(configSis.font_size || '14');
+    const color1 = configSis.theme_color_1 || configSis.tema_color_1 || '#af52de';
+    const color2 = configSis.theme_color_2 || configSis.tema_color_2 || '#5e5ce6';
+
+    aplicarTemaCSS(color1, color2);
+    document.title = nombre;
+    document.getElementById('brand-name').innerText = nombre;
+    document.getElementById('login-brand-name').innerText = nombre;
+    document.getElementById('input-nombre-empresa').value = nombre;
+    document.getElementById('app-body').style.fontFamily = fuente;
+    document.getElementById('selector-fuente').value = fuente;
+    document.getElementById('selector-tamano-fuente').value = tamanio;
+    document.documentElement.style.setProperty('--app-font-size', tamanio + 'px');
+    document.getElementById('lbl-tamano-fuente').innerText = tamanio + 'px';
+    document.getElementById('switch-descuentos').checked = String(configSis.permitir_descuentos) === 'true';
+    aplicarLogicaDescuentos(String(configSis.permitir_descuentos));
+}
+
+async function cargarConfiguracion() {
+    try {
+        const respuesta = await fetch('/api/configuracion');
+        if (!respuesta.ok) return;
+        aplicarConfiguracionEnInterfaz(await respuesta.json());
+    } catch (error) {
+        console.error('No se pudo cargar la configuración global.', error);
+    }
+}
+
+function cambiarTema(c1, c2) {
+    configSis.theme_color_1 = c1;
+    configSis.theme_color_2 = c2;
+    aplicarTemaCSS(c1, c2);
+}
 
 function aplicarTemaCSS(c1, c2) {
-    document.documentElement.style.setProperty('--theme-color-1', c1);
-    document.documentElement.style.setProperty('--theme-color-2', c2);
-    let h = c1.substring(1).split('');
-    if(h.length==3) h=[h[0],h[0],h[1],h[1],h[2],h[2]];
-    h='0x'+h.join('');
-    document.documentElement.style.setProperty('--theme-light', 'rgba('+[(h>>16)&255,(h>>8)&255,h&255].join(',')+',0.1)');
+    const color1 = /^#[0-9a-f]{3}([0-9a-f]{3})?$/i.test(c1 || '') ? c1 : '#af52de';
+    const color2 = /^#[0-9a-f]{3}([0-9a-f]{3})?$/i.test(c2 || '') ? c2 : '#5e5ce6';
+    document.documentElement.style.setProperty('--theme-color-1', color1);
+    document.documentElement.style.setProperty('--theme-color-2', color2);
+    let hex = color1.substring(1).split('');
+    if(hex.length === 3) hex = [hex[0], hex[0], hex[1], hex[1], hex[2], hex[2]];
+    const valor = Number.parseInt(hex.join(''), 16);
+    document.documentElement.style.setProperty('--theme-light', `rgba(${[(valor >> 16) & 255, (valor >> 8) & 255, valor & 255].join(',')},0.1)`);
 }
 
 function cambiarFuente() { document.getElementById('app-body').style.fontFamily = document.getElementById('selector-fuente').value; }
@@ -114,40 +178,161 @@ function cambiarTamanoFuente() {
 }
 
 async function guardarConfiguracionesFull(e) {
-    if(e) e.preventDefault();
-    const n = document.getElementById('input-nombre-empresa').value;
-    const f = document.getElementById('selector-fuente').value;
-    const s = document.getElementById('selector-tamano-fuente').value;
-    const desc = document.getElementById('switch-descuentos').checked ? 'true' : 'false';
-    if(n.trim()!=="") { localStorage.setItem('companyName', n); document.getElementById('brand-name').innerText = n; }
-    localStorage.setItem('appFont', f);
-    await fetch('/api/configuracion', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({font_size: s, permitir_descuentos: desc}) });
-    aplicarLogicaDescuentos(desc);
-    let btn = e ? e.target : null;
-    if(btn) { btn.innerText = "¡Guardado con éxito!"; setTimeout(() => { btn.innerText = "Guardar Configuraciones"; }, 2000); }
+    if (e) e.preventDefault();
+    if (!tienePermiso('configuracion')) return alert('No tienes permiso para actualizar la configuración.');
+    const boton = e?.currentTarget || e?.target;
+    const datos = {
+        nombre_empresa: document.getElementById('input-nombre-empresa').value.trim(),
+        font_family: document.getElementById('selector-fuente').value,
+        font_size: document.getElementById('selector-tamano-fuente').value,
+        permitir_descuentos: document.getElementById('switch-descuentos').checked ? 'true' : 'false',
+        theme_color_1: configSis.theme_color_1,
+        theme_color_2: configSis.theme_color_2
+    };
+    if (!datos.nombre_empresa) return alert('Indica el nombre de la empresa.');
+    try {
+        if (boton) { boton.disabled = true; boton.innerText = 'Guardando...'; }
+        const respuesta = await fetch('/api/configuracion', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(datos) });
+        const resultado = await respuesta.json().catch(() => ({}));
+        if (!respuesta.ok) throw new Error(resultado.error || 'No se pudo guardar la configuración.');
+        aplicarConfiguracionEnInterfaz(resultado.configuracion || datos);
+        if (boton) boton.innerText = '¡Guardado con éxito!';
+    } catch (error) {
+        alert(error.message || 'Ocurrió un error al guardar la configuración.');
+    } finally {
+        if (boton) setTimeout(() => { boton.disabled = false; boton.innerText = 'Guardar Configuraciones'; }, 1600);
+    }
+}
+
+function alternarVisibilidadContrasena(campoId, boton) {
+    const campo = document.getElementById(campoId);
+    if (!campo) return;
+    const esVisible = campo.type === 'text';
+    campo.type = esVisible ? 'password' : 'text';
+    const icono = boton?.querySelector('i');
+    if (icono) icono.className = esVisible ? 'fa-solid fa-eye' : 'fa-solid fa-eye-slash';
+}
+
+function actualizarSesionEnInterfaz() {
+    const nombre = sesionActual?.nombre || sesionActual?.username || sesionActual?.usuario || 'Sin sesión';
+    const rol = esAdministrador() ? 'Administrador' : 'Usuario con permisos personalizados';
+    document.getElementById('nav-nombre-usuario').innerText = nombre;
+    document.getElementById('nav-rol-usuario').innerText = sesionActual ? rol : 'Sin sesión activa';
+    document.querySelectorAll('[data-usuario-actual]').forEach(elemento => { elemento.innerText = nombre; });
+}
+
+function aplicarPermisosInterfaz() {
+    document.querySelectorAll('[data-permiso]').forEach(elemento => {
+        elemento.classList.toggle('d-none', !tienePermiso(elemento.dataset.permiso));
+    });
+    document.querySelectorAll('[data-permiso-accion]').forEach(elemento => {
+        elemento.classList.toggle('d-none', !tienePermiso(elemento.dataset.permisoAccion));
+    });
+
+    const grupos = {
+        facturacion: ['ventas', 'historial_ventas'],
+        contactos: ['clientes', 'proveedores'],
+        inventario: ['almacenes', 'categorias', 'productos', 'existencias', 'movimientos', 'kardex'],
+        sistema: ['parametros', 'lista_precios', 'reportes', 'usuarios', 'configuracion']
+    };
+    document.querySelectorAll('[data-permiso-grupo]').forEach(elemento => {
+        const permisosGrupo = grupos[elemento.dataset.permisoGrupo] || [];
+        elemento.classList.toggle('d-none', !permisosGrupo.some(tienePermiso));
+    });
+}
+
+function abrirModalLogin(mensaje = '') {
+    const alerta = document.getElementById('login-mensaje');
+    alerta.textContent = mensaje;
+    alerta.classList.toggle('d-none', !mensaje);
+    modalLoginInstancia ||= new bootstrap.Modal(document.getElementById('modalLogin'));
+    modalLoginInstancia.show();
+    setTimeout(() => document.getElementById('login-usuario')?.focus(), 250);
+}
+
+function cerrarModalLogin() {
+    modalLoginInstancia ||= bootstrap.Modal.getOrCreateInstance(document.getElementById('modalLogin'));
+    modalLoginInstancia.hide();
+}
+
+function normalizarSesion(respuesta) {
+    const usuario = respuesta?.usuario || respuesta?.session || respuesta;
+    if (!usuario || respuesta?.autenticado === false || respuesta?.authenticated === false) return null;
+    if (!(usuario.id || usuario.usuario || usuario.username)) return null;
+    return { ...usuario, permisos: normalizarPermisos(usuario.permisos) };
+}
+
+async function cargarSesionActual() {
+    try {
+        const respuesta = await fetch('/api/auth/sesion');
+        if (!respuesta.ok) return null;
+        return normalizarSesion(await respuesta.json());
+    } catch (error) {
+        console.error('No se pudo verificar la sesión.', error);
+        return null;
+    }
+}
+
+async function iniciarAplicacionAutenticada() {
+    actualizarSesionEnInterfaz();
+    aplicarPermisosInterfaz();
+    await Promise.all([cargarConfiguracion(), cargarTasasYConfig(), cargarDataTotal()]);
+    const moduloInicial = primerModuloPermitido();
+    showModule(moduloInicial, false);
+}
+
+async function iniciarSesion(evento) {
+    evento.preventDefault();
+    const boton = document.getElementById('btn-iniciar-sesion');
+    const alerta = document.getElementById('login-mensaje');
+    const usuario = document.getElementById('login-usuario').value.trim();
+    const contrasena = document.getElementById('login-contrasena').value;
+    if (!usuario || !contrasena) return;
+    try {
+        boton.disabled = true;
+        boton.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Validando...';
+        alerta.classList.add('d-none');
+        const respuesta = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ usuario, contrasena }) });
+        const resultado = await respuesta.json().catch(() => ({}));
+        if (!respuesta.ok) throw new Error(resultado.error || 'Usuario o contraseña inválidos.');
+        sesionActual = normalizarSesion(resultado);
+        if (!sesionActual) throw new Error('El servidor no devolvió una sesión válida.');
+        document.getElementById('login-contrasena').value = '';
+        cerrarModalLogin();
+        await iniciarAplicacionAutenticada();
+    } catch (error) {
+        alerta.textContent = error.message || 'No se pudo iniciar sesión.';
+        alerta.classList.remove('d-none');
+    } finally {
+        boton.disabled = false;
+        boton.innerHTML = '<i class="fa-solid fa-right-to-bracket me-2"></i>Iniciar sesión';
+    }
+}
+
+async function cerrarSesion() {
+    try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (_) { /* La interfaz se cierra incluso sin respuesta. */ }
+    sesionActual = null;
+    dataGlobal.usuarios = [];
+    actualizarSesionEnInterfaz();
+    aplicarPermisosInterfaz();
+    abrirModalLogin();
 }
 
 document.getElementById('menu-toggle').addEventListener('click', () => document.getElementById('wrapper').classList.toggle('toggled'));
 setInterval(() => {
-    document.getElementById('reloj-vivo').innerText = new Intl.DateTimeFormat('es-VE', { timeZone: 'America/Caracas', hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date());
+    const reloj = document.getElementById('reloj-vivo');
+    if (reloj) reloj.innerText = new Intl.DateTimeFormat('es-VE', { timeZone: 'America/Caracas', hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date());
 }, 1000);
 
 async function cargarTasasYConfig() {
     try {
-        const res = await fetch('/api/configuracion');
-        if(res.ok) {
-            configSis = await res.json();
-            let fSize = configSis.font_size || '14';
-            document.getElementById('selector-tamano-fuente').value = fSize;
-            document.documentElement.style.setProperty('--app-font-size', fSize + 'px');
-            document.getElementById('lbl-tamano-fuente').innerText = fSize + 'px';
-            document.getElementById('switch-descuentos').checked = (configSis.permitir_descuentos === 'true');
-            aplicarLogicaDescuentos(configSis.permitir_descuentos);
-        }
-        let r = await fetch('/api/lista_precios_data');
-        let data = await r.json();
-        actualizarEstadoTasasHoy(data.tasas);
-    } catch(e) { console.error(e); }
+        const respuesta = await fetch('/api/lista_precios_data');
+        if (!respuesta.ok) return;
+        const datos = await respuesta.json();
+        actualizarEstadoTasasHoy(datos.tasas);
+    } catch (error) {
+        console.error('No se pudo cargar el estado de las tasas.', error);
+    }
 }
 
 function actualizarEstadoTasasHoy(tasas) {
@@ -185,37 +370,195 @@ function aplicarLogicaDescuentos(estado) {
     else { document.getElementById('col-descuento-input').classList.remove('d-none'); document.querySelectorAll('.col-desc-header, .col-desc-cell').forEach(el => el.classList.remove('d-none')); }
 }
 
+function actualizarContadores(conteo = {}) {
+    const valores = {
+        clientes: conteo.clientes ?? dataGlobal.clientes.length,
+        proveedores: conteo.proveedores ?? dataGlobal.proveedores.length,
+        almacenes: conteo.almacenes ?? dataGlobal.almacenes.length,
+        categorias: conteo.categorias ?? dataGlobal.categorias.length,
+        productos: conteo.productos ?? dataGlobal.productos.length,
+        existencias: conteo.existencias ?? dataGlobal.existencias.length,
+        kardex: conteo.kardex ?? dataGlobal.kardex.length,
+        ventas: conteo.ventas ?? dataGlobal.ventas.length,
+        notas_credito: conteo.notas_credito ?? dataGlobal.notas_credito.length,
+        tasas: conteo.tasas ?? dataGlobal.tasas.length,
+        usuarios: conteo.usuarios ?? dataGlobal.usuarios.filter(usuario => usuario.activo !== false).length
+    };
+    Object.entries(valores).forEach(([nombre, valor]) => {
+        const contador = document.getElementById(`count-${nombre}`);
+        if (contador) contador.innerText = Number(valor || 0).toLocaleString('es-VE');
+    });
+}
+
 async function cargarDataTotal() {
+    if (!sesionActual) return;
     const endpoints = ['clientes', 'proveedores', 'almacenes', 'categorias', 'productos', 'existencias', 'kardex', 'ventas', 'tasas', 'notas_credito', 'coberturas'];
-    for(let ep of endpoints) {
-        try { let r = await fetch(`/api/${ep}`); if(r.ok) dataGlobal[ep] = await r.json(); } catch(err) { console.error(err); }
-    }
-    try {
-        let res = await fetch('/api/resumen');
-        if(res.ok) {
-            let r = await res.json();
-            document.getElementById('count-clientes').innerText = r.conteo.clientes || 0;
-            document.getElementById('count-productos').innerText = r.conteo.productos || 0;
-            document.getElementById('count-ventas').innerText = r.conteo.ventas || 0;
-            notificacionesGlobales = r.notificaciones;
-            actualizarCampanaNotificaciones();
+    if (tienePermiso('usuarios')) endpoints.push('usuarios');
+
+    await Promise.all(endpoints.map(async endpoint => {
+        try {
+            const respuesta = await fetch(`/api/${endpoint}`);
+            if (respuesta.ok) dataGlobal[endpoint] = await respuesta.json();
+        } catch (error) {
+            console.error(`No se pudo cargar ${endpoint}.`, error);
         }
-    } catch(e) {}
+    }));
 
-    let dl = document.getElementById('lista_clientes');
-    if(dl) dl.innerHTML = dataGlobal.clientes.map(c => `<option value="${c.nombre}" data-id="${c.id}"></option>`).join('');
+    try {
+        const respuesta = await fetch('/api/resumen');
+        if (respuesta.ok) {
+            const resumen = await respuesta.json();
+            notificacionesGlobales = resumen.notificaciones || {};
+            actualizarContadores(resumen.conteo || {});
+            actualizarCampanaNotificaciones();
+        } else {
+            actualizarContadores();
+        }
+    } catch (_) {
+        actualizarContadores();
+    }
 
-    let d2 = document.getElementById('lista_facturas_dev');
-    if(d2) d2.innerHTML = dataGlobal.ventas.map(v => `<option value="${v.consecutivo}">${v.cliente_nombre}</option>`).join('');
+    const listaClientes = document.getElementById('lista_clientes');
+    if (listaClientes) listaClientes.innerHTML = dataGlobal.clientes.map(cliente => `<option value="${escapeHTML(cliente.nombre)}" data-id="${cliente.id}"></option>`).join('');
 
-    modulosUI.forEach(m => renderTabla(m.id));
+    const listaFacturas = document.getElementById('lista_facturas_dev');
+    if (listaFacturas) listaFacturas.innerHTML = dataGlobal.ventas.map(venta => `<option value="${escapeHTML(venta.consecutivo)}">${escapeHTML(venta.cliente_nombre)}</option>`).join('');
+
+    modulosUI.forEach(modulo => renderTabla(modulo.id));
     llenarSelectores();
-    
     renderTablaTasas();
     cargarCoberturas();
+    if (tienePermiso('usuarios')) renderTablaUsuarios();
 
-    let r_tasas = await fetch('/api/lista_precios_data');
-    actualizarEstadoTasasHoy((await r_tasas.json()).tasas);
+    await cargarTasasYConfig();
+}
+
+function usuarioEstaActivo(usuario) {
+    return usuario?.activo === true || usuario?.activo === 1 || usuario?.activo === '1' || String(usuario?.estado || '').toUpperCase() === 'ACTIVO';
+}
+
+function permisosDeUsuario(usuario) {
+    return PERMISOS.filter(permiso => Boolean(normalizarPermisos(usuario?.permisos)[permiso]));
+}
+
+function renderTablaUsuarios() {
+    const cuerpo = document.querySelector('#tabla-usuarios tbody');
+    if (!cuerpo) return;
+    const termino = document.getElementById('buscar-usuarios')?.value.trim().toLocaleLowerCase('es') || '';
+    const usuarios = dataGlobal.usuarios.filter(usuario => {
+        const texto = `${usuario.nombre || ''} ${usuario.usuario || ''}`.toLocaleLowerCase('es');
+        return !termino || texto.includes(termino);
+    });
+
+    if (!usuarios.length) {
+        cuerpo.innerHTML = `<tr><td colspan="6" class="text-muted py-4">${termino ? 'No hay coincidencias.' : 'No hay usuarios registrados.'}</td></tr>`;
+        return;
+    }
+
+    cuerpo.innerHTML = usuarios.map(usuario => {
+        const permisos = permisosDeUsuario(usuario);
+        const esAdmin = Boolean(usuario.es_admin || usuario.rol === 'ADMIN' || usuario.rol === 'ADMINISTRADOR');
+        const activo = usuarioEstaActivo(usuario);
+        const datosCodificados = encodeURIComponent(JSON.stringify(usuario));
+        const puedeEliminar = !usuario.protegido && String(usuario.id) !== String(sesionActual?.id);
+        return `<tr>
+            <td class="fw-bold text-start">${escapeHTML(usuario.nombre || '-')}</td>
+            <td><span class="badge bg-light text-dark border">${escapeHTML(usuario.usuario || '-')}</span></td>
+            <td><span class="badge ${esAdmin ? 'bg-theme text-white' : 'bg-light text-dark border'}">${esAdmin ? 'Administrador' : 'Personalizado'}</span></td>
+            <td><span class="badge bg-theme-light text-theme-solid">${esAdmin ? 'Todos los módulos' : `${permisos.length} módulo${permisos.length === 1 ? '' : 's'}`}</span></td>
+            <td><span class="badge ${activo ? 'bg-success' : 'bg-secondary'}">${activo ? 'Activo' : 'Inactivo'}</span></td>
+            <td class="text-nowrap"><button class="btn-action btn-edit me-1" type="button" onclick="editarUsuario('${datosCodificados}')" title="Editar usuario"><i class="fa-solid fa-pen"></i></button>${puedeEliminar ? `<button class="btn-action btn-delete" type="button" onclick="eliminarUsuario(${Number(usuario.id)})" title="Eliminar usuario"><i class="fa-solid fa-trash"></i></button>` : ''}</td>
+        </tr>`;
+    }).join('');
+}
+
+function filtrarUsuarios() { renderTablaUsuarios(); }
+
+function restablecerFormularioUsuario() {
+    const formulario = document.getElementById('form-usuario');
+    formulario.reset();
+    document.getElementById('usuario-id').value = '';
+    document.getElementById('usuario-activo').checked = true;
+    document.querySelectorAll('.permiso-usuario').forEach(control => { control.checked = false; });
+    document.getElementById('titulo-form-usuario').innerText = 'Nuevo usuario';
+    document.getElementById('texto-btn-usuario').innerText = 'Guardar usuario';
+    document.getElementById('btn-cancelar-usuario').classList.add('d-none');
+}
+
+function cancelarEdicionUsuario() { restablecerFormularioUsuario(); }
+
+function editarUsuario(datosCodificados) {
+    if (!tienePermiso('usuarios')) return alert('No tienes permiso para administrar usuarios.');
+    try {
+        const usuario = JSON.parse(decodeURIComponent(datosCodificados));
+        restablecerFormularioUsuario();
+        document.getElementById('usuario-id').value = usuario.id;
+        document.getElementById('usuario-nombre').value = usuario.nombre || '';
+        document.getElementById('usuario-usuario').value = usuario.usuario || '';
+        document.getElementById('usuario-activo').checked = usuarioEstaActivo(usuario);
+        document.getElementById('usuario-es-admin').checked = Boolean(usuario.es_admin || usuario.rol === 'ADMIN' || usuario.rol === 'ADMINISTRADOR');
+        const permisos = normalizarPermisos(usuario.permisos);
+        document.querySelectorAll('.permiso-usuario').forEach(control => { control.checked = Boolean(permisos[control.value]); });
+        document.getElementById('titulo-form-usuario').innerText = `Editar: ${usuario.nombre || usuario.usuario}`;
+        document.getElementById('texto-btn-usuario').innerText = 'Guardar cambios';
+        document.getElementById('btn-cancelar-usuario').classList.remove('d-none');
+        document.getElementById('usuario-nombre').focus();
+    } catch (_) {
+        alert('No se pudieron cargar los datos del usuario.');
+    }
+}
+
+async function guardarUsuario(evento) {
+    evento.preventDefault();
+    if (!tienePermiso('usuarios')) return alert('No tienes permiso para administrar usuarios.');
+    const id = document.getElementById('usuario-id').value;
+    const nombre = document.getElementById('usuario-nombre').value.trim();
+    const usuario = document.getElementById('usuario-usuario').value.trim();
+    const contrasena = document.getElementById('usuario-contrasena').value;
+    const confirmar = document.getElementById('usuario-confirmar-contrasena').value;
+    const permisos = [...document.querySelectorAll('.permiso-usuario:checked')].map(control => control.value);
+    const boton = evento.submitter || document.querySelector('#form-usuario button[type="submit"]');
+
+    if (!nombre || !usuario) return alert('Completa el nombre y el usuario.');
+    if ((!id && contrasena.length < 8) || (contrasena && contrasena.length < 8)) return alert('La contraseña debe tener al menos 8 caracteres.');
+    if (contrasena !== confirmar) return alert('Las contraseñas no coinciden.');
+
+    const payload = {
+        nombre,
+        usuario,
+        contrasena: contrasena || undefined,
+        activo: document.getElementById('usuario-activo').checked,
+        es_admin: document.getElementById('usuario-es-admin').checked,
+        permisos
+    };
+    try {
+        boton.disabled = true;
+        const respuesta = await fetch(id ? `/api/usuarios/${id}` : '/api/usuarios', { method: id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const resultado = await respuesta.json().catch(() => ({}));
+        if (!respuesta.ok) throw new Error(resultado.error || 'No se pudo guardar el usuario.');
+        restablecerFormularioUsuario();
+        await cargarDataTotal();
+    } catch (error) {
+        alert(error.message || 'No se pudo guardar el usuario.');
+    } finally {
+        boton.disabled = false;
+    }
+}
+
+async function eliminarUsuario(id) {
+    if (!tienePermiso('usuarios')) return alert('No tienes permiso para administrar usuarios.');
+    if (String(id) === String(sesionActual?.id)) return alert('No puedes eliminar tu propia sesión.');
+    const usuario = dataGlobal.usuarios.find(item => String(item.id) === String(id));
+    const nombre = usuario?.nombre || usuario?.usuario || 'seleccionado';
+    if (!confirm(`¿Eliminar al usuario ${nombre}? Esta acción no se puede deshacer.`)) return;
+    try {
+        const respuesta = await fetch(`/api/usuarios/${id}`, { method: 'DELETE' });
+        const resultado = await respuesta.json().catch(() => ({}));
+        if (!respuesta.ok) throw new Error(resultado.error || 'No se pudo eliminar el usuario.');
+        await cargarDataTotal();
+    } catch (error) {
+        alert(error.message || 'No se pudo eliminar el usuario.');
+    }
 }
 
 // ----- FUNCIONES DE TASAS, COBERTURAS Y LISTA DE PRECIOS ----- //
@@ -240,6 +583,7 @@ function cargarCoberturas() {
 }
 
 window.calcularCobertura = function() {
+    if (!exigirPermiso('parametros')) return;
     let fIni = document.getElementById('q_fecha_ini').value;
     let fFin = document.getElementById('q_fecha_fin').value;
     if(!fIni || !fFin) return alert("Seleccione el rango de fechas.");
@@ -261,6 +605,7 @@ window.calcularCobertura = function() {
 };
 
 window.registrarCobertura = async function() {
+    if (!exigirPermiso('parametros')) return;
     if(!window.coberturaCalculadaTemp) return alert("Calcule primero los parámetros.");
     let payload = { rango_evaluado: window.coberturaCalculadaTemp.rango, fecha_pico_maximo: window.coberturaCalculadaTemp.fecha_pico, porcentaje_cobertura: window.coberturaCalculadaTemp.cob, factor_proteccion: window.coberturaCalculadaTemp.factor, estado: 'ACTIVO' };
     let r = await fetch('/api/coberturas', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
@@ -268,6 +613,7 @@ window.registrarCobertura = async function() {
 };
 
 window.subirExcelTasas = async function() {
+    if (!exigirPermiso('parametros')) return;
     let input = document.getElementById('excelTasas');
     if(!input.files[0]) return;
     let fd = new FormData();
@@ -279,6 +625,7 @@ window.subirExcelTasas = async function() {
 };
 
 window.cargarListaPreciosDinamica = async function() {
+    if (!exigirPermiso('lista_precios')) return;
     let r = await fetch('/api/lista_precios_data');
     let data = await r.json();
     actualizarEstadoTasasHoy(data.tasas);
@@ -374,23 +721,28 @@ function mostrarNotificaciones() {
     new bootstrap.Modal(document.getElementById('modalNotificaciones')).show();
 }
 
-function showModule(mId) {
-    if(mId === 'panel' || mId === 'existencias' || mId === 'kardex' || mId === 'historial_ventas' || mId === 'parametros') cargarDataTotal();
-    if(mId === 'lista_precios') cargarListaPreciosDinamica();
-         
-    document.querySelectorAll('.modulo-vista').forEach(el => { el.classList.add('d-none', 'animate-fade-up'); el.classList.remove('active'); });
-    document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active'));
-         
-    const v = document.getElementById(`modulo-${mId}`);
-    if (v) {
-        v.classList.remove('d-none');
-        void v.offsetWidth;
-        v.classList.add('active');
+function showModule(mId, refrescar = true) {
+    const permiso = PERMISO_POR_MODULO[mId] || mId;
+    if (!sesionActual) { abrirModalLogin(); return; }
+    if (!tienePermiso(permiso)) return alert('No tienes permiso para acceder a este módulo.');
+    if (refrescar && ['panel', 'existencias', 'kardex', 'historial_ventas', 'parametros', 'usuarios'].includes(mId)) cargarDataTotal();
+    if (mId === 'lista_precios') cargarListaPreciosDinamica();
+
+    document.querySelectorAll('.modulo-vista').forEach(elemento => { elemento.classList.add('d-none', 'animate-fade-up'); elemento.classList.remove('active'); });
+    document.querySelectorAll('.nav-link').forEach(elemento => elemento.classList.remove('active'));
+
+    const vista = document.getElementById(`modulo-${mId}`);
+    if (vista) {
+        vista.classList.remove('d-none');
+        void vista.offsetWidth;
+        vista.classList.add('active');
     }
-    if(event && event.currentTarget) event.currentTarget.classList.add('active');
+    document.querySelector(`.nav-link[data-modulo="${mId}"]`)?.classList.add('active');
 }
 
 function abrirModal(m) {
+    const permiso = m === 'tasas' ? 'parametros' : m;
+    if (!tienePermiso(permiso)) return alert('No tienes permiso para realizar esta operación.');
     if (m === 'productos') {
         if (dataGlobal.categorias.length === 0) { if(confirm("¡Falta Categoría!\n¿Crear una ahora?")) abrirModal('categorias'); return; }
         if (dataGlobal.proveedores.length === 0) { if(confirm("¡Falta Proveedor!\n¿Crear uno ahora?")) abrirModal('proveedores'); return; }
@@ -455,6 +807,7 @@ window.toggleMetodoPago = function() {
 };
 
 async function prepararVenta() {
+    if (!exigirPermiso('ventas')) return;
     if (dataGlobal.productos.length === 0) {
         if(confirm("Aún no tienes productos para vender. ¿Ir al módulo a crear uno?")) { showModule('productos'); abrirModal('productos'); }
         return;
@@ -510,6 +863,7 @@ function mostrarInfoModal(titulo, txt) { document.getElementById('titulo-ver-mas
 function mostrarImagenProducto(url) { document.getElementById('img_preview').src = url; new bootstrap.Modal(document.getElementById('modalImagen')).show(); }
 
 window.abrirDetalleExistencia = async function(prodId) {
+    if (!exigirPermiso('existencias')) return;
     let p = dataGlobal.existencias.find(e => e.id === prodId);
     if(!p) return;
     
@@ -641,6 +995,7 @@ function llenarSelectores() {
 }
 
 function llenarModalEditar(m, encodedStr) {
+    if (!exigirPermiso(m === 'tasas' ? 'parametros' : m)) return;
     const d = JSON.parse(decodeURIComponent(encodedStr));
     document.getElementById(`id-${m}`).value = d.id;
     document.getElementById(`titulo-modal-${m}`).innerText = 'Editar Registro';
@@ -679,6 +1034,7 @@ function llenarModalEditar(m, encodedStr) {
 
 async function guardarFormulario(e, m) {
     e.preventDefault();
+    if (!exigirPermiso(m === 'tasas' ? 'parametros' : m)) return;
     const id = document.getElementById(`id-${m}`).value;
     let payload = {};
          
@@ -700,6 +1056,8 @@ async function guardarFormulario(e, m) {
 }
 
 function eliminarRegistro(m, id) {
+    const permiso = m === 'tasas' ? 'parametros' : (m === 'ventas' ? 'historial_ventas' : m);
+    if (!exigirPermiso(permiso)) return;
     if (m === 'tasas') {
         idTasaPendienteBorrar = id;
         new bootstrap.Modal(document.getElementById('modalConfirmarBorrarTasa')).show();
@@ -728,6 +1086,7 @@ async function ejecutarBorrado(m, id) {
 }
 
 function abrirModalMovimiento() {
+    if (!exigirPermiso('movimientos')) return;
     const form = document.getElementById('form-movimiento');
     if(form) form.reset();
     document.getElementById('campos_dinamicos_mov').innerHTML = '';
@@ -770,6 +1129,7 @@ async function actualizarCamposMovimiento() {
 
 async function guardarMovimiento(e) {
     e.preventDefault();
+    if (!exigirPermiso('movimientos')) return;
     const t = document.getElementById('mov_tipo').value;
     let p = { producto_id: document.getElementById('mov_prod').value, tipo: t, cantidad: document.getElementById('mov_cant').value };
          
@@ -797,6 +1157,7 @@ async function guardarMovimiento(e) {
 }
 
 function agregarAlCarrito() {
+    if (!exigirPermiso('ventas')) return;
     const sel = document.getElementById('v_prod_sel');
     const prodId = sel.value;
     const cant = parseFloat(document.getElementById('v_prod_cant').value);
@@ -868,9 +1229,10 @@ function renderCarrito() {
     aplicarLogicaDescuentos(configSis.permitir_descuentos);
 }
 
-window.quitarDelCarrito = function(idx) { carritoVentas.splice(idx, 1); renderCarrito(); };
+window.quitarDelCarrito = function(idx) { if (exigirPermiso('ventas')) { carritoVentas.splice(idx, 1); renderCarrito(); } };
 
 async function procesarVenta() {
+    if (!exigirPermiso('ventas')) return;
     const cli_nombre = document.getElementById('v_cli_nom').value.trim();
     if(!cli_nombre) return alert("Por favor, ingresa el Nombre o Razón Social del cliente.");
     if(carritoVentas.length === 0) return alert("¡No puedes generar una nota vacía! Agrega al menos un producto.");
@@ -934,6 +1296,7 @@ async function procesarVenta() {
 
 // ---------------- DEVOLUCIONES Y NOTAS DE CRÉDITO ---------------- //
 function abrirModalDevoluciones() {
+    if (!exigirPermiso('historial_ventas')) return;
     document.getElementById('dev_buscar_factura').value = '';
     document.getElementById('dev_contenido_nota').classList.add('d-none');
     itemsDevolucionTemporal = [];
@@ -941,6 +1304,7 @@ function abrirModalDevoluciones() {
 }
 
 async function buscarNotaParaDevolucion() {
+    if (!exigirPermiso('historial_ventas')) return;
     let consec = document.getElementById('dev_buscar_factura').value;
     let venta = dataGlobal.ventas.find(v => v.consecutivo === consec);
          
@@ -970,6 +1334,7 @@ async function buscarNotaParaDevolucion() {
 }
 
 async function procesarDevolucionDefinitiva() {
+    if (!exigirPermiso('historial_ventas')) return;
     let motivo = document.getElementById('dev_motivo').value.trim();
     if(!motivo) return alert("Debe especificar el motivo de la devolución.");
          
@@ -1009,6 +1374,7 @@ async function procesarDevolucionDefinitiva() {
 }
 
 window.verPreviewNota = async function(consecutivo, id) {
+    if (!exigirPermiso('historial_ventas')) return;
     let venta = dataGlobal.ventas.find(v => v.id === id);
     if(!venta) return;
     document.getElementById('pdf_empresa').innerText = document.getElementById('brand-name').innerText;
@@ -1056,6 +1422,7 @@ window.descargarPDFNota = function() {
 
 // AQUÍ ESTÁ EL CAMBIO PARA QUE SE VEA A QUÉ FACTURA AFECTA LA NOTA DE CRÉDITO
 window.llenarYMostrarModalNC = async function(consecutivoNc) {
+    if (!exigirPermiso('historial_ventas')) return;
     let nc = dataGlobal.notas_credito.find(n => n.consecutivo === consecutivoNc);
     if(!nc) return alert("Nota de crédito no encontrada.");
 
@@ -1133,12 +1500,14 @@ window.descargarPDFNC = function() {
 
 // ---------------- REPORTES EXCEL Y VISTA PREVIA ---------------- //
 window.configurarFiltrosReporte = function() {
+    if (!exigirPermiso('reportes')) return;
     let t = document.getElementById('rep_tipo').value;
     if(t === 'kardex') document.getElementById('col_rep_mov').style.display = 'block';
     else document.getElementById('col_rep_mov').style.display = 'none';
 }
 
 window.generarVistaPreviaReporte = function() {
+    if (!exigirPermiso('reportes')) return;
     let tipo = document.getElementById('rep_tipo').value;
     let desde = new Date(document.getElementById('rep_desde').value + "T00:00:00");
     let hasta = new Date(document.getElementById('rep_hasta').value + "T23:59:59");
@@ -1221,6 +1590,7 @@ window.generarVistaPreviaReporte = function() {
 }
 
 window.exportarReporte = function(formato) {
+    if (!exigirPermiso('reportes')) return;
     let tipo = document.getElementById('rep_tipo').value;
     let filename = `Reporte_${tipo}_${new Date().toLocaleDateString()}.` + (formato==='excel'?'xlsx':'pdf');
          
@@ -1256,6 +1626,7 @@ window.exportarReporte = function(formato) {
 
 // ---------------- RESTO DEL CÓDIGO (Consulta Histórica) ---------------- //
 window.buscarListaPreciosHistorica = async function() {
+    if (!exigirPermiso('lista_precios')) return;
     let fecha = document.getElementById('busqueda_fecha_lista').value;
     if(!fecha) return alert("Selecciona una fecha.");
          
@@ -1286,4 +1657,15 @@ window.buscarListaPreciosHistorica = async function() {
     }
 }
 
-window.onload = () => { inicializarUI(); cargarConfiguracion(); cargarTasasYConfig(); cargarDataTotal(); };
+window.onload = async () => {
+    inicializarUI();
+    await cargarConfiguracion();
+    sesionActual = await cargarSesionActual();
+    if (sesionActual) {
+        await iniciarAplicacionAutenticada();
+    } else {
+        actualizarSesionEnInterfaz();
+        aplicarPermisosInterfaz();
+        abrirModalLogin();
+    }
+};

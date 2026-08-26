@@ -1,4 +1,5 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, session
+from werkzeug.security import generate_password_hash, check_password_hash
 import os
 import psycopg2
 import psycopg2.extras
@@ -6,6 +7,8 @@ import datetime
 import json
 
 app = Flask(__name__)
+# Llave secreta necesaria para manejar las sesiones de los usuarios
+app.secret_key = os.environ.get('SECRET_KEY', 'super-secret-key-dashboard-2024')
 
 # --- WRAPPER PARA COMPATIBILIDAD SQLITE -> POSTGRESQL ---
 class PostgresConnWrapper:
@@ -14,7 +17,6 @@ class PostgresConnWrapper:
         self.conn.autocommit = False # Mantiene el control manual de transacciones
 
     def execute(self, query, args=None):
-        # DictCursor permite acceder por índice (row[0]) o por clave (row['id']) como sqlite3.Row
         cur = self.conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
         # Reemplazar placeholders de SQLite (?) a PostgreSQL (%s)
         query = query.replace('?', '%s')
@@ -31,7 +33,6 @@ class PostgresConnWrapper:
         self.conn.close()
 
 def get_db_connection():
-    # Render inyectará la variable DATABASE_URL automáticamente
     database_url = os.environ.get('DATABASE_URL')
     if not database_url:
         raise ValueError("No se encontró la variable de entorno DATABASE_URL")
@@ -39,7 +40,7 @@ def get_db_connection():
     return PostgresConnWrapper(conn)
 
 def safe_alter(conn, query):
-    """Ejecuta un ALTER TABLE y si falla (ej. la columna ya existe), hace rollback seguro"""
+    """Ejecuta un ALTER TABLE y si falla hace rollback seguro"""
     try:
         conn.execute(query)
         conn.commit()
@@ -49,7 +50,6 @@ def safe_alter(conn, query):
 def init_db():
     conn = get_db_connection()
     try:
-        # Se cambia AUTOINCREMENT por SERIAL PRIMARY KEY
         conn.execute('''CREATE TABLE IF NOT EXISTS clientes (id SERIAL PRIMARY KEY, documento TEXT, nombre TEXT, telefono TEXT, correo TEXT, pais TEXT, estado TEXT, municipio TEXT, direccion_entrega TEXT, punto_referencia TEXT, coordenadas TEXT, tipo_envio TEXT, fecha_registro TEXT, registrado_por TEXT)''')
         conn.execute('''CREATE TABLE IF NOT EXISTS proveedores (id SERIAL PRIMARY KEY, nombre TEXT, correo TEXT, telefono TEXT, direccion TEXT, tipo TEXT, fecha_registro TEXT, registrado_por TEXT)''')
         conn.execute('''CREATE TABLE IF NOT EXISTS almacenes (id SERIAL PRIMARY KEY, nombre TEXT, ubicacion TEXT, fecha_registro TEXT, registrado_por TEXT)''')
@@ -67,6 +67,10 @@ def init_db():
         conn.execute('''CREATE TABLE IF NOT EXISTS historico_tasas (id SERIAL PRIMARY KEY, fecha TEXT, hora TEXT, dolar_bcv REAL, binance REAL, bybit REAL, dolar_promedio REAL, euro_bcv REAL, zelle REAL, paypal REAL, brecha REAL, registrado_por TEXT)''')
         conn.execute('''CREATE TABLE IF NOT EXISTS historico_coberturas (id SERIAL PRIMARY KEY, fecha_registro TEXT, rango_evaluado TEXT, fecha_pico_maximo TEXT, porcentaje_cobertura REAL, factor_proteccion REAL, registrado_por TEXT, estado TEXT)''')
         conn.execute('''CREATE TABLE IF NOT EXISTS configuracion (clave TEXT PRIMARY KEY, valor TEXT)''')
+        
+        # --- TABLA DE USUARIOS ---
+        conn.execute('''CREATE TABLE IF NOT EXISTS usuarios (id SERIAL PRIMARY KEY, nombre TEXT, usuario TEXT UNIQUE, contrasena TEXT, activo BOOLEAN DEFAULT TRUE, es_admin BOOLEAN DEFAULT FALSE, permisos TEXT, protegido BOOLEAN DEFAULT FALSE, fecha_registro TEXT)''')
+        
         conn.commit()
 
         # Migraciones automáticas (Usando safe_alter)
@@ -80,24 +84,28 @@ def init_db():
         for col in columnas_clientes:
             safe_alter(conn, f"ALTER TABLE clientes ADD COLUMN {col} TEXT DEFAULT ''")
 
-        # INSERT OR IGNORE se cambia a ON CONFLICT DO NOTHING
-        conn.execute("INSERT INTO configuracion (clave, valor) VALUES ('binance_custom', '') ON CONFLICT (clave) DO NOTHING")
+        # Configuración por defecto
         conn.execute("INSERT INTO configuracion (clave, valor) VALUES ('permitir_descuentos', 'true') ON CONFLICT (clave) DO NOTHING")
         conn.execute("INSERT INTO configuracion (clave, valor) VALUES ('font_size', '14') ON CONFLICT (clave) DO NOTHING")
         
-        # Crear Almacén de Devoluciones y Almacén de Merma Automáticos (con CURRENT_TIMESTAMP y ON CONFLICT)
+        # Almacenes Automáticos
         conn.execute("INSERT INTO almacenes (id, nombre, ubicacion, fecha_registro, registrado_por) VALUES (9999, 'Devoluciones por Venta (BLOQUEADO)', 'Sistema Automático', CURRENT_TIMESTAMP, 'Sistema') ON CONFLICT (id) DO NOTHING")
         conn.execute("INSERT INTO almacenes (id, nombre, ubicacion, fecha_registro, registrado_por) VALUES (9998, 'Almacén de Merma (BLOQUEADO)', 'Sistema Automático', CURRENT_TIMESTAMP, 'Sistema') ON CONFLICT (id) DO NOTHING")
         
         if conn.execute("SELECT COUNT(*) FROM historico_coberturas").fetchone()[0] == 0:
             conn.execute('''INSERT INTO historico_coberturas (fecha_registro, rango_evaluado, fecha_pico_maximo, porcentaje_cobertura, factor_proteccion, registrado_por, estado) VALUES (CURRENT_TIMESTAMP, 'Inicial', 'N/A', 0.20, 1.20, 'Sistema', 'ACTIVO')''')
         
+        # Insertar Usuario Fantasma (Admin) si no existe
+        admin = conn.execute("SELECT * FROM usuarios WHERE usuario = 'admin'").fetchone()
+        if not admin:
+            hashed = generate_password_hash('admin')
+            conn.execute("INSERT INTO usuarios (nombre, usuario, contrasena, activo, es_admin, permisos, protegido, fecha_registro) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+                         ('Administrador Principal', 'admin', hashed, True, True, '[]', True))
+
         conn.commit()
     finally:
         conn.close()
 
-# En producción, init_db se ejecutará al arrancar para asegurar tablas
-# si DATABASE_URL existe en el entorno
 if os.environ.get('DATABASE_URL'):
     init_db()
 
@@ -108,6 +116,58 @@ def safe_float(val):
 def safe_int(val):
     try: return int(val) if val else 0
     except: return 0
+
+# ----------------- RUTAS DE SESIÓN Y AUTENTICACIÓN -----------------
+
+@app.route('/api/auth/login', methods=['POST'])
+def api_login():
+    data = request.json
+    usuario = data.get('usuario')
+    contrasena = data.get('contrasena')
+    
+    conn = get_db_connection()
+    try:
+        row = conn.execute("SELECT * FROM usuarios WHERE usuario = ?", (usuario,)).fetchone()
+        if row and check_password_hash(row['contrasena'], contrasena):
+            if not row['activo']:
+                return jsonify({'error': 'El usuario se encuentra inactivo.'}), 401
+                
+            # Parsear permisos desde el JSON almacenado
+            try: permisos_list = json.loads(row['permisos']) if row['permisos'] else []
+            except: permisos_list = []
+            
+            session['usuario_id'] = row['id']
+            session['nombre'] = row['nombre']
+            session['usuario'] = row['usuario']
+            session['es_admin'] = row['es_admin']
+            session['permisos'] = permisos_list
+            
+            return jsonify({
+                'id': row['id'], 'nombre': row['nombre'], 'usuario': row['usuario'],
+                'es_admin': row['es_admin'], 'permisos': permisos_list
+            })
+        return jsonify({'error': 'Usuario o contraseña inválidos.'}), 401
+    finally:
+        conn.close()
+
+@app.route('/api/auth/sesion', methods=['GET'])
+def api_sesion():
+    if 'usuario_id' in session:
+        return jsonify({
+            'id': session['usuario_id'],
+            'nombre': session['nombre'],
+            'usuario': session['usuario'],
+            'es_admin': session['es_admin'],
+            'permisos': session.get('permisos', [])
+        })
+    return jsonify({'autenticado': False}), 401
+
+@app.route('/api/auth/logout', methods=['POST'])
+def api_logout():
+    session.clear()
+    return jsonify({'status': 'ok'})
+
+# ----------------- RUTAS PRINCIPALES DEL SISTEMA -----------------
 
 @app.route('/')
 def index(): 
@@ -153,6 +213,7 @@ def api_stock_almacenes(producto_id):
 
 @app.route('/api/movimientos', methods=['POST'])
 def registrar_movimiento():
+    usuario_actual = session.get('nombre', 'Sistema')
     conn = get_db_connection()
     try:
         d = request.json
@@ -162,7 +223,7 @@ def registrar_movimiento():
         consecutivo = f"MOV-{str((ult_mov[0] + 1) if ult_mov else 1).zfill(5)}"
         
         conn.execute('''INSERT INTO movimientos (consecutivo, fecha_registro, tipo, producto_id, cantidad, costo_unitario, almacen_origen_id, almacen_destino_id, motivo, documento, registrado_por) VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
-                      (consecutivo, fecha_mov, d['tipo'], d['producto_id'], safe_float(d.get('cantidad')), safe_float(d.get('costo_unitario')), safe_int(d.get('almacen_origen_id')) or None, safe_int(d.get('almacen_destino_id')) or None, d.get('motivo',''), d.get('documento',''), 'Admin'))
+                      (consecutivo, fecha_mov, d['tipo'], d['producto_id'], safe_float(d.get('cantidad')), safe_float(d.get('costo_unitario')), safe_int(d.get('almacen_origen_id')) or None, safe_int(d.get('almacen_destino_id')) or None, d.get('motivo',''), d.get('documento',''), usuario_actual))
         if 'precio_usd' in d and d['precio_usd'] != "":
             conn.execute("UPDATE productos SET precio_usd = ? WHERE id = ?", (safe_float(d['precio_usd']), d['producto_id']))
             
@@ -200,7 +261,7 @@ def api_existencias():
 def api_kardex():
     conn = get_db_connection()
     try:
-        data = conn.execute('''SELECT m.*, COALESCE(p.descripcion, "Producto Eliminado") as producto_nombre, 
+        data = conn.execute('''SELECT m.*, COALESCE(p.descripcion, 'Producto Eliminado') as producto_nombre, 
                             ao.nombre as almacen_origen_nombre, ad.nombre as almacen_destino_nombre
                             FROM movimientos m LEFT JOIN productos p ON m.producto_id = p.id 
                             LEFT JOIN almacenes ao ON m.almacen_origen_id = ao.id
@@ -211,6 +272,7 @@ def api_kardex():
 
 @app.route('/api/ventas', methods=['GET', 'POST'])
 def api_ventas():
+    usuario_actual = session.get('nombre', 'Sistema')
     conn = get_db_connection()
     try:
         if request.method == 'POST':
@@ -227,7 +289,8 @@ def api_ventas():
                               (d.get('cliente_doc', 'PENDIENTE'), d.get('cliente_telefono', ''), d.get('cliente_correo', ''), d.get('env_pais', 'Venezuela'), d.get('env_estado', ''), d.get('env_ciudad', ''), d.get('env_direccion', ''), d.get('env_referencia', ''), d.get('env_coordenadas', ''), d.get('env_tipo', ''), existe['id']))
             else:
                 conn.execute('INSERT INTO clientes (documento, nombre, telefono, correo, pais, estado, municipio, direccion_entrega, punto_referencia, coordenadas, tipo_envio, fecha_registro, registrado_por) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                              (d.get('cliente_doc', 'PENDIENTE'), c_nombre, d.get('cliente_telefono', ''), d.get('cliente_correo', ''), d.get('env_pais', 'Venezuela'), d.get('env_estado', ''), d.get('env_ciudad', ''), d.get('env_direccion', ''), d.get('env_referencia', ''), d.get('env_coordenadas', ''), d.get('env_tipo', ''), ahora, 'Auto-Registro Venta'))
+                              (d.get('cliente_doc', 'PENDIENTE'), c_nombre, d.get('cliente_telefono', ''), d.get('cliente_correo', ''), d.get('env_pais', 'Venezuela'), d.get('env_estado', ''), d.get('env_ciudad', ''), d.get('env_direccion', ''), d.get('env_referencia', ''), d.get('env_coordenadas', ''), d.get('env_tipo', ''), ahora, usuario_actual))
+            
             consec_venta = d.get('consecutivo')
             total_eur = safe_float(d.get('total_eur'))
             total_bs = safe_float(d.get('total_bs'))
@@ -236,19 +299,20 @@ def api_ventas():
             if nc_id:
                 conn.execute("UPDATE notas_credito SET saldo_usado_eur = total_eur, estado = 'APLICADA' WHERE id = ?", (nc_id,))
             conn.execute('INSERT INTO ventas (consecutivo, fecha_registro, cliente_nombre, cliente_telefono, direccion_entrega, total_eur, total_bs, tasa_bcv_euro_aplicada, tasa_binance_aplicada, porcentaje_brecha_aplicado, estado, registrado_por, metodo_pago) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                          (consec_venta, ahora, c_nombre, d.get('cliente_telefono',''), d.get('env_direccion',''), total_eur, total_bs, safe_float(d.get('tasa_bcv_euro')), safe_float(d.get('tasa_binance')), safe_float(d.get('brecha_dia')), d.get('estado_semaforo','EMITIDA'), 'Admin', d.get('metodo_pago', '')))
+                          (consec_venta, ahora, c_nombre, d.get('cliente_telefono',''), d.get('env_direccion',''), total_eur, total_bs, safe_float(d.get('tasa_bcv_euro')), safe_float(d.get('tasa_binance')), safe_float(d.get('brecha_dia')), d.get('estado_semaforo','EMITIDA'), usuario_actual, d.get('metodo_pago', '')))
             ult_mov = conn.execute('SELECT id FROM movimientos ORDER BY id DESC LIMIT 1').fetchone()
             num_m = (ult_mov[0] + 1) if ult_mov else 1
             for item in d['detalles']:
                 consec_mov = f"MOV-{str(num_m).zfill(5)}"
                 conn.execute('''INSERT INTO movimientos (consecutivo, fecha_registro, tipo, producto_id, cantidad, costo_unitario, documento, registrado_por) VALUES (?,?,?,?,?,?,?,?)''',
-                              (consec_mov, ahora, 'Venta', item['producto_id'], safe_float(item['cantidad']), safe_float(item.get('precio_eur')), consec_venta, 'Admin'))
+                              (consec_mov, ahora, 'Venta', item['producto_id'], safe_float(item['cantidad']), safe_float(item.get('precio_eur')), consec_venta, usuario_actual))
                 num_m += 1
                 
                 conn.execute('''INSERT INTO detalle_nota_entrega (consecutivo, producto_id, cantidad, descuento, precio_unitario_euro_snapshot, subtotal_euro_snapshot, total_euro_snapshot, precio_unitario_bs_snapshot, subtotal_bs_snapshot, total_bs_snapshot) VALUES (?,?,?,?,?,?,?,?,?,?)''',
                               (consec_venta, item['producto_id'], item['cantidad'], item['descuento'], item['precio_eur'], item['sub_eur'], item['total_eur'], item['pre_bs'], item['sub_bs'], item['tot_bs']))
             conn.commit()
             return jsonify({'status': 'ok', 'consecutivo': consec_venta})
+        
         data = conn.execute('SELECT * FROM ventas ORDER BY id DESC').fetchall()
         return jsonify([dict(ix) for ix in data])
     except Exception as e: return jsonify({'error': str(e)}), 500
@@ -276,6 +340,7 @@ def get_notas_credito_cliente(cliente_nombre):
 
 @app.route('/api/devoluciones', methods=['POST'])
 def registrar_devolucion():
+    usuario_actual = session.get('nombre', 'Sistema')
     conn = get_db_connection()
     try:
         d = request.json
@@ -287,19 +352,18 @@ def registrar_devolucion():
         existe_nc = conn.execute('SELECT id FROM notas_credito WHERE consecutivo = ?', (consec_nc,)).fetchone()
         if existe_nc:
             consec_nc = f"{consec_nc}-{int(datetime.datetime.now().timestamp())}"
+        
         conn.execute('''INSERT INTO notas_credito (consecutivo, fecha_registro, consecutivo_origen, cliente_nombre, total_eur, total_bs, motivo, registrado_por, estado) VALUES (?,?,?,?,?,?,?,?,?)''',
-                      (consec_nc, ahora, consec_origen, d['cliente_nombre'], safe_float(d['total_eur']), safe_float(d['total_bs']), d['motivo'], 'Admin', 'DISPONIBLE'))
+                      (consec_nc, ahora, consec_origen, d['cliente_nombre'], safe_float(d['total_eur']), safe_float(d['total_bs']), d['motivo'], usuario_actual, 'DISPONIBLE'))
         ult_mov = conn.execute('SELECT id FROM movimientos ORDER BY id DESC LIMIT 1').fetchone()
         num_m = (ult_mov[0] + 1) if ult_mov else 1
         for item in d['detalles']:
             if safe_float(item['cantidad_devolver']) > 0:
                 consec_mov = f"MOV-{str(num_m).zfill(5)}"
-                
-                # AQUI EL CAMBIO: El documento del Kardex ahora es la Nota de Credito y el motivo indica qué factura afectó
                 motivo_kardex = f"Afecta a Nota: {consec_origen} | Motivo: {d['motivo']}"
                 
                 conn.execute('''INSERT INTO movimientos (consecutivo, fecha_registro, tipo, producto_id, cantidad, costo_unitario, almacen_destino_id, documento, registrado_por, motivo) VALUES (?,?,?,?,?,?,?,?,?,?)''',
-                              (consec_mov, ahora, 'Devolución por venta', item['producto_id'], safe_float(item['cantidad_devolver']), safe_float(item['precio_eur']), 9999, consec_nc, 'Admin', motivo_kardex))
+                              (consec_mov, ahora, 'Devolución por venta', item['producto_id'], safe_float(item['cantidad_devolver']), safe_float(item['precio_eur']), 9999, consec_nc, usuario_actual, motivo_kardex))
                 num_m += 1
                 
                 conn.execute('''INSERT INTO detalle_nota_credito (consecutivo_nc, producto_id, cantidad, precio_eur, precio_bs, subtotal_eur, subtotal_bs) VALUES (?,?,?,?,?,?,?)''',
@@ -355,7 +419,6 @@ def api_lista_precios_data():
             'tasas': {'fecha': tasa['fecha'] if tasa else hoy, 'hora': tasa['hora'] if tasa else '--:--', 'binance': t_bin, 'euro_bcv': t_eur, 'brecha': brecha_dia, 'cobertura_activa': cobertura_activa, 'registrada_hoy': bool(tasa)},
             'productos': resultados
         }
-        # INSERT OR REPLACE actualizado para PostgreSQL
         conn.execute("INSERT INTO historico_precios_dia (fecha, json_data) VALUES (?, ?) ON CONFLICT (fecha) DO UPDATE SET json_data = EXCLUDED.json_data", (hoy, json.dumps(data_final)))
         conn.commit()
         return jsonify(data_final)
@@ -374,6 +437,7 @@ def get_historico_precios(fecha):
 def upload_tasas():
     if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
     f = request.files['file']
+    usuario_actual = session.get('nombre', 'Sistema')
     try:
         import openpyxl
         wb = openpyxl.load_workbook(f, data_only=True)
@@ -390,7 +454,7 @@ def upload_tasas():
             bcv, binance, byb, prom, euro, zel, pay = [safe_float(row[i]) for i in (2, 3, 4, 5, 6, 7, 8)]
             brecha = (binance / euro) - 1 if euro > 0 else 0
             conn.execute('''INSERT INTO historico_tasas (fecha, hora, dolar_bcv, binance, bybit, dolar_promedio, euro_bcv, zelle, paypal, brecha, registrado_por) VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
-               (fecha, hora, bcv, binance, byb, prom, euro, zel, pay, brecha, 'Migración Excel'))
+               (fecha, hora, bcv, binance, byb, prom, euro, zel, pay, brecha, usuario_actual))
             inserted += 1
         conn.commit()
         return jsonify({'status': 'ok', 'inserted': inserted})
@@ -399,8 +463,22 @@ def upload_tasas():
         try: conn.close()
         except: pass
 
+# ----------------- RUTAS DINÁMICAS (CRUD GENÉRICO) -----------------
+@app.route('/api/<tabla>', methods=['GET', 'POST'])
+def api_tabla(tabla):
+    if tabla not in ['clientes', 'proveedores', 'almacenes', 'categorias', 'productos', 'tasas', 'coberturas', 'usuarios', 'notas_credito']:
+        return jsonify({'error': 'Tabla no permitida'}), 403
+    return api_crud(tabla, request)
+
+@app.route('/api/<tabla>/<int:id>', methods=['PUT', 'DELETE'])
+def api_tabla_id(tabla, id):
+    if tabla not in ['clientes', 'proveedores', 'almacenes', 'categorias', 'productos', 'tasas', 'coberturas', 'ventas', 'usuarios']:
+        return jsonify({'error': 'Tabla no permitida'}), 403
+    return api_crud(tabla, request, id)
+
 def api_crud(tabla, request, id=None):
     conn = get_db_connection()
+    usuario_actual = session.get('nombre', 'Sistema')
     try:
         ahora = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         tabla_db = 'historico_tasas' if tabla == 'tasas' else tabla
@@ -408,65 +486,98 @@ def api_crud(tabla, request, id=None):
         
         if request.method == 'GET':
             query = f'SELECT * FROM {tabla_db} ORDER BY id DESC'
-            if tabla_db == 'productos': query = '''SELECT p.*, c.nombre as categoria_nombre, prov.nombre as proveedor_nombre FROM productos p LEFT JOIN categorias c ON p.categoria_id = c.id LEFT JOIN proveedores prov ON p.proveedor_id = prov.id ORDER BY p.id DESC'''
-            elif tabla_db == 'historico_tasas': query = 'SELECT * FROM historico_tasas ORDER BY fecha DESC, hora DESC'
+            if tabla_db == 'productos': 
+                query = '''SELECT p.*, c.nombre as categoria_nombre, prov.nombre as proveedor_nombre FROM productos p LEFT JOIN categorias c ON p.categoria_id = c.id LEFT JOIN proveedores prov ON p.proveedor_id = prov.id ORDER BY p.id DESC'''
+            elif tabla_db == 'historico_tasas': 
+                query = 'SELECT * FROM historico_tasas ORDER BY fecha DESC, hora DESC'
+            elif tabla_db == 'usuarios':
+                query = 'SELECT id, nombre, usuario, activo, es_admin, permisos, protegido, fecha_registro FROM usuarios ORDER BY id ASC'
+                
             data = conn.execute(query).fetchall()
             return jsonify([dict(ix) for ix in data])
             
         elif request.method == 'POST':
             d = request.json
-            if tabla_db == 'clientes': conn.execute('INSERT INTO clientes (documento, nombre, telefono, correo, pais, estado, municipio, direccion_entrega, punto_referencia, coordenadas, tipo_envio, fecha_registro, registrado_por) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', (d.get('documento','PENDIENTE'), d.get('nombre',''), d.get('telefono',''), d.get('correo',''), d.get('pais',''), d.get('estado',''), d.get('municipio',''), d.get('direccion_entrega',''), d.get('punto_referencia',''), d.get('coordenadas',''), d.get('tipo_envio',''), ahora, 'Admin'))
-            elif tabla_db == 'proveedores': conn.execute('INSERT INTO proveedores (nombre, correo, telefono, direccion, tipo, fecha_registro, registrado_por) VALUES (?,?,?,?,?,?,?)', (d.get('nombre',''), d.get('correo',''), d.get('telefono',''), d.get('direccion',''), d.get('tipo',''), ahora, 'Admin'))
-            elif tabla_db == 'almacenes': conn.execute('INSERT INTO almacenes (nombre, ubicacion, fecha_registro, registrado_por) VALUES (?,?,?,?)', (d.get('nombre',''), d.get('ubicacion',''), ahora, 'Admin'))
-            elif tabla_db == 'categorias': conn.execute('INSERT INTO categorias (nombre, descripcion, fecha_registro, registrado_por) VALUES (?,?,?,?)', (d.get('nombre',''), d.get('descripcion',''), ahora, 'Admin'))
-            elif tabla_db == 'productos': conn.execute('INSERT INTO productos (categoria_id, proveedor_id, descripcion, unidad_medida, stock_minimo, precio_usd, estado, codigo_barras, foto, fecha_registro, registrado_por) VALUES (?,?,?,?,?,?,?,?,?,?,?)', (safe_int(d.get('categoria_id')) or None, safe_int(d.get('proveedor_id')) or None, d.get('descripcion',''), d.get('unidad_medida',''), safe_int(d.get('stock_minimo')), safe_float(d.get('precio_usd', 0)), d.get('estado','ACTIVO'), d.get('codigo_barras',''), d.get('foto',''), ahora, 'Admin'))
+            if tabla_db == 'clientes': 
+                conn.execute('INSERT INTO clientes (documento, nombre, telefono, correo, pais, estado, municipio, direccion_entrega, punto_referencia, coordenadas, tipo_envio, fecha_registro, registrado_por) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', 
+                             (d.get('documento','PENDIENTE'), d.get('nombre',''), d.get('telefono',''), d.get('correo',''), d.get('pais',''), d.get('estado',''), d.get('municipio',''), d.get('direccion_entrega',''), d.get('punto_referencia',''), d.get('coordenadas',''), d.get('tipo_envio',''), ahora, usuario_actual))
+            elif tabla_db == 'proveedores': 
+                conn.execute('INSERT INTO proveedores (nombre, correo, telefono, direccion, tipo, fecha_registro, registrado_por) VALUES (?,?,?,?,?,?,?)', 
+                             (d.get('nombre',''), d.get('correo',''), d.get('telefono',''), d.get('direccion',''), d.get('tipo',''), ahora, usuario_actual))
+            elif tabla_db == 'almacenes': 
+                conn.execute('INSERT INTO almacenes (nombre, ubicacion, fecha_registro, registrado_por) VALUES (?,?,?,?)', 
+                             (d.get('nombre',''), d.get('ubicacion',''), ahora, usuario_actual))
+            elif tabla_db == 'categorias': 
+                conn.execute('INSERT INTO categorias (nombre, descripcion, fecha_registro, registrado_por) VALUES (?,?,?,?)', 
+                             (d.get('nombre',''), d.get('descripcion',''), ahora, usuario_actual))
+            elif tabla_db == 'productos': 
+                conn.execute('INSERT INTO productos (categoria_id, proveedor_id, descripcion, unidad_medida, stock_minimo, precio_usd, estado, codigo_barras, foto, fecha_registro, registrado_por) VALUES (?,?,?,?,?,?,?,?,?,?,?)', 
+                             (safe_int(d.get('categoria_id')) or None, safe_int(d.get('proveedor_id')) or None, d.get('descripcion',''), d.get('unidad_medida',''), safe_int(d.get('stock_minimo')), safe_float(d.get('precio_usd', 0)), d.get('estado','ACTIVO'), d.get('codigo_barras',''), d.get('foto',''), ahora, usuario_actual))
             elif tabla_db == 'historico_tasas':
                 binance = safe_float(d.get('binance'))
                 euro = safe_float(d.get('euro_bcv'))
                 brecha = (binance / euro) - 1 if euro > 0 else 0
                 conn.execute('''INSERT INTO historico_tasas (fecha, hora, dolar_bcv, binance, bybit, dolar_promedio, euro_bcv, zelle, paypal, brecha, registrado_por) VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
-                              (d['fecha'], d['hora'], safe_float(d.get('dolar_bcv')), binance, safe_float(d.get('bybit')), safe_float(d.get('dolar_promedio')), euro, safe_float(d.get('zelle')), safe_float(d.get('paypal')), brecha, 'Admin'))
+                              (d['fecha'], d['hora'], safe_float(d.get('dolar_bcv')), binance, safe_float(d.get('bybit')), safe_float(d.get('dolar_promedio')), euro, safe_float(d.get('zelle')), safe_float(d.get('paypal')), brecha, usuario_actual))
             elif tabla_db == 'historico_coberturas':
                 conn.execute('''INSERT INTO historico_coberturas (fecha_registro, rango_evaluado, fecha_pico_maximo, porcentaje_cobertura, factor_proteccion, registrado_por, estado) VALUES (?,?,?,?,?,?,?)''',
-                              (ahora, d.get('rango_evaluado',''), d.get('fecha_pico_maximo',''), safe_float(d.get('porcentaje_cobertura')), safe_float(d.get('factor_proteccion')), 'Admin', d.get('estado', 'ACTIVO')))
+                              (ahora, d.get('rango_evaluado',''), d.get('fecha_pico_maximo',''), safe_float(d.get('porcentaje_cobertura')), safe_float(d.get('factor_proteccion')), usuario_actual, d.get('estado', 'ACTIVO')))
+            elif tabla_db == 'usuarios':
+                hashed = generate_password_hash(d['contrasena'])
+                conn.execute("INSERT INTO usuarios (nombre, usuario, contrasena, activo, es_admin, permisos, fecha_registro) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                             (d['nombre'], d['usuario'], hashed, d.get('activo', True), d.get('es_admin', False), json.dumps(d.get('permisos', [])), ahora))
             conn.commit()
             return jsonify({'status': 'ok'})
             
         elif request.method == 'PUT':
             d = request.json
-            if tabla_db == 'clientes': conn.execute('UPDATE clientes SET documento=?, nombre=?, telefono=?, correo=?, pais=?, estado=?, municipio=?, direccion_entrega=?, punto_referencia=?, coordenadas=?, tipo_envio=? WHERE id=?', (d.get('documento',''), d.get('nombre',''), d.get('telefono',''), d.get('correo',''), d.get('pais',''), d.get('estado',''), d.get('municipio',''), d.get('direccion_entrega',''), d.get('punto_referencia',''), d.get('coordenadas',''), d.get('tipo_envio',''), id))
-            elif tabla_db == 'proveedores': conn.execute('UPDATE proveedores SET nombre=?, correo=?, telefono=?, direccion=?, tipo=? WHERE id=?', (d.get('nombre',''), d.get('correo',''), d.get('telefono',''), d.get('direccion',''), d.get('tipo',''), id))
-            elif tabla_db == 'almacenes': conn.execute('UPDATE almacenes SET nombre=?, ubicacion=? WHERE id=?', (d.get('nombre',''), d.get('ubicacion',''), id))
-            elif tabla_db == 'categorias': conn.execute('UPDATE categorias SET nombre=?, descripcion=? WHERE id=?', (d.get('nombre',''), d.get('descripcion',''), id))
-            elif tabla_db == 'productos': conn.execute('UPDATE productos SET categoria_id=?, proveedor_id=?, descripcion=?, unidad_medida=?, stock_minimo=?, precio_usd=?, estado=?, codigo_barras=?, foto=? WHERE id=?', (safe_int(d.get('categoria_id')) or None, safe_int(d.get('proveedor_id')) or None, d.get('descripcion',''), d.get('unidad_medida',''), safe_int(d.get('stock_minimo')), safe_float(d.get('precio_usd', 0)), d.get('estado','ACTIVO'), d.get('codigo_barras',''), d.get('foto',''), id))
-            elif tabla_db == 'historico_tasas': 
-                binance = safe_float(d.get('binance'))
-                euro = safe_float(d.get('euro_bcv'))
-                brecha = (binance / euro) - 1 if euro > 0 else 0
-                conn.execute('UPDATE historico_tasas SET fecha=?, hora=?, dolar_bcv=?, binance=?, bybit=?, dolar_promedio=?, euro_bcv=?, zelle=?, paypal=?, brecha=? WHERE id=?', (d.get('fecha'), d.get('hora'), safe_float(d.get('dolar_bcv')), binance, safe_float(d.get('bybit')), safe_float(d.get('dolar_promedio')), euro, safe_float(d.get('zelle')), safe_float(d.get('paypal')), brecha, id))
+            if tabla_db == 'clientes': 
+                conn.execute('UPDATE clientes SET documento=?, nombre=?, telefono=?, correo=?, pais=?, estado=?, municipio=?, direccion_entrega=?, punto_referencia=?, coordenadas=?, tipo_envio=? WHERE id=?', 
+                             (d.get('documento','PENDIENTE'), d.get('nombre',''), d.get('telefono',''), d.get('correo',''), d.get('pais',''), d.get('estado',''), d.get('municipio',''), d.get('direccion_entrega',''), d.get('punto_referencia',''), d.get('coordenadas',''), d.get('tipo_envio',''), id))
+            elif tabla_db == 'proveedores': 
+                conn.execute('UPDATE proveedores SET nombre=?, correo=?, telefono=?, direccion=?, tipo=? WHERE id=?', 
+                             (d.get('nombre',''), d.get('correo',''), d.get('telefono',''), d.get('direccion',''), d.get('tipo',''), id))
+            elif tabla_db == 'almacenes': 
+                conn.execute('UPDATE almacenes SET nombre=?, ubicacion=? WHERE id=?', 
+                             (d.get('nombre',''), d.get('ubicacion',''), id))
+            elif tabla_db == 'categorias': 
+                conn.execute('UPDATE categorias SET nombre=?, descripcion=? WHERE id=?', 
+                             (d.get('nombre',''), d.get('descripcion',''), id))
+            elif tabla_db == 'productos': 
+                conn.execute('UPDATE productos SET categoria_id=?, proveedor_id=?, descripcion=?, unidad_medida=?, stock_minimo=?, precio_usd=?, estado=?, codigo_barras=?, foto=? WHERE id=?', 
+                             (safe_int(d.get('categoria_id')) or None, safe_int(d.get('proveedor_id')) or None, d.get('descripcion',''), d.get('unidad_medida',''), safe_int(d.get('stock_minimo')), safe_float(d.get('precio_usd', 0)), d.get('estado','ACTIVO'), d.get('codigo_barras',''), d.get('foto',''), id))
+            elif tabla_db == 'historico_tasas':
+                conn.execute('UPDATE historico_tasas SET fecha=?, hora=?, dolar_bcv=?, binance=?, bybit=?, dolar_promedio=?, euro_bcv=?, zelle=?, paypal=?, brecha=? WHERE id=?', 
+                             (d['fecha'], d['hora'], safe_float(d.get('dolar_bcv')), safe_float(d.get('binance')), safe_float(d.get('bybit')), safe_float(d.get('dolar_promedio')), safe_float(d.get('euro_bcv')), safe_float(d.get('zelle')), safe_float(d.get('paypal')), safe_float(d.get('brecha')), id))
+            elif tabla_db == 'usuarios':
+                if d.get('contrasena'):
+                    hashed = generate_password_hash(d['contrasena'])
+                    conn.execute("UPDATE usuarios SET nombre=?, usuario=?, contrasena=?, activo=?, es_admin=?, permisos=? WHERE id=?",
+                                 (d['nombre'], d['usuario'], hashed, d.get('activo', True), d.get('es_admin', False), json.dumps(d.get('permisos', [])), id))
+                else:
+                    conn.execute("UPDATE usuarios SET nombre=?, usuario=?, activo=?, es_admin=?, permisos=? WHERE id=?",
+                                 (d['nombre'], d['usuario'], d.get('activo', True), d.get('es_admin', False), json.dumps(d.get('permisos', [])), id))
             conn.commit()
             return jsonify({'status': 'ok'})
             
         elif request.method == 'DELETE':
+            # Evita borrar el usuario protegido o en caso de error relacional en otras tablas
+            if tabla_db == 'usuarios':
+                conn.execute('DELETE FROM usuarios WHERE id=? AND protegido=FALSE', (id,))
+            else:
+                conn.execute(f'DELETE FROM {tabla_db} WHERE id=?', (id,))
+                
+            # Si se elimina una venta, hay que limpiar su rastro
             if tabla_db == 'ventas':
-                consec = conn.execute('SELECT consecutivo FROM ventas WHERE id=?', (id,)).fetchone()
-                if consec:
-                    conn.execute('DELETE FROM movimientos WHERE documento=?', (consec[0],))
-                    conn.execute('DELETE FROM detalle_nota_entrega WHERE consecutivo=?', (consec[0],))
-            conn.execute(f'DELETE FROM {tabla_db} WHERE id=?', (id,))
+                v = conn.execute("SELECT consecutivo FROM ventas WHERE id=?", (id,)).fetchone()
+                if v:
+                    conn.execute("DELETE FROM movimientos WHERE documento=?", (v['consecutivo'],))
+                    conn.execute("DELETE FROM detalle_nota_entrega WHERE consecutivo=?", (v['consecutivo'],))
             conn.commit()
             return jsonify({'status': 'ok'})
-            
     except Exception as e: return jsonify({'error': str(e)}), 500
     finally: conn.close()
 
-@app.route('/api/<tabla>', methods=['GET', 'POST'])
-def handle_tabla(tabla): return api_crud(tabla, request)
-
-@app.route('/api/<tabla>/<int:id>', methods=['PUT', 'DELETE'])
-def handle_tabla_id(tabla, id): return api_crud(tabla, request, id)
-
 if __name__ == '__main__':
-    # En local usa un puerto; Render asignará la variable PORT automáticamente.
-    port = int(os.environ.get("PORT", 5001))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)

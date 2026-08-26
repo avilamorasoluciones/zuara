@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard App</title>
+    <title id="app-title">Dashboard App</title>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&family=Inter:wght@400;600;800&family=Roboto:wght@400;700&family=Poppins:wght@400;600&family=Montserrat:wght@400;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -25,6 +25,14 @@
         .tasa-badge { padding: 4px 10px; font-size: 0.85em; }
         .reloj-compacto { padding: 4px 10px !important; font-size: 0.85em !important; }
         #contenido-pdf-nota, #contenido-pdf-nc { background: white; color: black; font-family: 'Arial', sans-serif; font-size: 12px;}
+        .session-chip { max-width: 230px; }
+        .session-chip-name { max-width: 125px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .permission-switch { min-height: 58px; border: 1px solid #ececf0; border-radius: 16px; background: #fafafa; padding: 12px 14px 12px 46px; }
+        .permission-switch .form-check-input { margin-left: -32px; margin-top: 2px; cursor: pointer; }
+        .permission-switch .form-check-label { cursor: pointer; display: block; }
+        .permission-switch:hover { border-color: var(--theme-color-1); background: var(--theme-light); }
+        .login-illustration { width: 74px; height: 74px; border-radius: 24px; display: inline-flex; align-items: center; justify-content: center; }
+        .summary-card[role="button"]:focus { outline: 4px solid var(--theme-light); }
     </style>
 </head>
 <body id="app-body">
@@ -35,25 +43,30 @@
             <span id="brand-name">Dashboard</span>
         </div>
         <div class="list-group list-group-flush mt-2 ps-2 pb-4">
-            <a href="#" class="list-group-item list-group-item-action nav-link active" onclick="showModule('panel')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-house"></i></span> Panel Principal</a>
-            <p class="small fw-bold ms-3 mt-4 mb-2 text-uppercase letter-spacing sidebar-subtitle">Facturación</p>
-            <a href="#" class="list-group-item list-group-item-action nav-link" onclick="prepararVenta()"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-file-invoice"></i></span> Nota de Entrega</a>
-            <a href="#" class="list-group-item list-group-item-action nav-link" onclick="showModule('historial_ventas')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-receipt"></i></span> Historial Notas</a>
-            <p class="small fw-bold ms-3 mt-4 mb-2 text-uppercase letter-spacing sidebar-subtitle">Contactos</p>
-            <a href="#" class="list-group-item list-group-item-action nav-link" onclick="showModule('clientes')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-users"></i></span> Clientes</a>
-            <a href="#" class="list-group-item list-group-item-action nav-link" onclick="showModule('proveedores')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-handshake"></i></span> Proveedores</a>
-            <p class="small fw-bold ms-3 mt-4 mb-2 text-uppercase letter-spacing sidebar-subtitle">Inventario</p>
-            <a href="#" class="list-group-item list-group-item-action nav-link" onclick="showModule('almacenes')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-warehouse"></i></span> Almacenes</a>
-            <a href="#" class="list-group-item list-group-item-action nav-link" onclick="showModule('categorias')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-tags"></i></span> Categorías</a>
-            <a href="#" class="list-group-item list-group-item-action nav-link" onclick="showModule('productos')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-box-open"></i></span> Productos</a>
-            <a href="#" class="list-group-item list-group-item-action nav-link" onclick="showModule('existencias')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-cubes"></i></span> Existencias</a>
-            <a href="#" class="list-group-item list-group-item-action nav-link" onclick="abrirModalMovimiento()"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-arrow-right-arrow-left"></i></span> + Nuevo Movimiento</a>
-            <a href="#" class="list-group-item list-group-item-action nav-link" onclick="showModule('kardex')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-clipboard-list"></i></span> Kardex</a>
-            <p class="small fw-bold ms-3 mt-4 mb-2 text-uppercase letter-spacing sidebar-subtitle">Sistema</p>
-            <a href="#" class="list-group-item list-group-item-action nav-link" onclick="showModule('parametros')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-chart-line"></i></span> Parámetros (Tasas)</a>
-            <a href="#" class="list-group-item list-group-item-action nav-link" onclick="showModule('lista_precios')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-list-ol"></i></span> Lista de Precios</a>
-            <a href="#" class="list-group-item list-group-item-action nav-link" onclick="showModule('reportes')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-file-pdf"></i></span> Reportes</a>
-            <a href="#" class="list-group-item list-group-item-action nav-link" onclick="showModule('configuracion')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-gear"></i></span> Configuración</a>
+            <a href="#" class="list-group-item list-group-item-action nav-link active" data-permiso="panel" data-modulo="panel" onclick="showModule('panel')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-house"></i></span> Panel Principal</a>
+
+            <p class="small fw-bold ms-3 mt-4 mb-2 text-uppercase letter-spacing sidebar-subtitle" data-permiso-grupo="facturacion">Facturación</p>
+            <a href="#" class="list-group-item list-group-item-action nav-link" data-permiso="ventas" data-modulo="ventas" onclick="prepararVenta()"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-file-invoice"></i></span> Nota de Entrega</a>
+            <a href="#" class="list-group-item list-group-item-action nav-link" data-permiso="historial_ventas" data-modulo="historial_ventas" onclick="showModule('historial_ventas')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-receipt"></i></span> Historial Notas</a>
+
+            <p class="small fw-bold ms-3 mt-4 mb-2 text-uppercase letter-spacing sidebar-subtitle" data-permiso-grupo="contactos">Contactos</p>
+            <a href="#" class="list-group-item list-group-item-action nav-link" data-permiso="clientes" data-modulo="clientes" onclick="showModule('clientes')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-users"></i></span> Clientes</a>
+            <a href="#" class="list-group-item list-group-item-action nav-link" data-permiso="proveedores" data-modulo="proveedores" onclick="showModule('proveedores')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-handshake"></i></span> Proveedores</a>
+
+            <p class="small fw-bold ms-3 mt-4 mb-2 text-uppercase letter-spacing sidebar-subtitle" data-permiso-grupo="inventario">Inventario</p>
+            <a href="#" class="list-group-item list-group-item-action nav-link" data-permiso="almacenes" data-modulo="almacenes" onclick="showModule('almacenes')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-warehouse"></i></span> Almacenes</a>
+            <a href="#" class="list-group-item list-group-item-action nav-link" data-permiso="categorias" data-modulo="categorias" onclick="showModule('categorias')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-tags"></i></span> Categorías</a>
+            <a href="#" class="list-group-item list-group-item-action nav-link" data-permiso="productos" data-modulo="productos" onclick="showModule('productos')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-box-open"></i></span> Productos</a>
+            <a href="#" class="list-group-item list-group-item-action nav-link" data-permiso="existencias" data-modulo="existencias" onclick="showModule('existencias')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-cubes"></i></span> Existencias</a>
+            <a href="#" class="list-group-item list-group-item-action nav-link" data-permiso="movimientos" data-modulo="movimientos" onclick="abrirModalMovimiento()"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-arrow-right-arrow-left"></i></span> + Nuevo Movimiento</a>
+            <a href="#" class="list-group-item list-group-item-action nav-link" data-permiso="kardex" data-modulo="kardex" onclick="showModule('kardex')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-clipboard-list"></i></span> Kardex</a>
+
+            <p class="small fw-bold ms-3 mt-4 mb-2 text-uppercase letter-spacing sidebar-subtitle" data-permiso-grupo="sistema">Sistema</p>
+            <a href="#" class="list-group-item list-group-item-action nav-link" data-permiso="parametros" data-modulo="parametros" onclick="showModule('parametros')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-chart-line"></i></span> Parámetros (Tasas)</a>
+            <a href="#" class="list-group-item list-group-item-action nav-link" data-permiso="lista_precios" data-modulo="lista_precios" onclick="showModule('lista_precios')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-list-ol"></i></span> Lista de Precios</a>
+            <a href="#" class="list-group-item list-group-item-action nav-link" data-permiso="reportes" data-modulo="reportes" onclick="showModule('reportes')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-file-pdf"></i></span> Reportes</a>
+            <a href="#" class="list-group-item list-group-item-action nav-link" data-permiso="usuarios" data-modulo="usuarios" onclick="showModule('usuarios')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-user-gear"></i></span> Usuarios</a>
+            <a href="#" class="list-group-item list-group-item-action nav-link" data-permiso="configuracion" data-modulo="configuracion" onclick="showModule('configuracion')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-gear"></i></span> Configuración</a>
         </div>
     </div>
     <div id="page-content-wrapper">
@@ -70,7 +83,18 @@
                 <div class="d-flex align-items-center gap-2 animate-fade ms-auto">
                     <span id="reloj-vivo" class="fw-bold rounded-pill shadow-sm bg-light text-dark d-none d-sm-inline border reloj-compacto">--:-- --</span>
                     <button class="btn btn-light position-relative rounded-circle shadow-sm bounce-hover border p-2" style="width: 35px; height: 35px; display:flex; align-items:center; justify-content:center;" onclick="mostrarNotificaciones()"><i class="fa-solid fa-bell text-theme-solid"></i><span id="badge-notif" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger d-none" style="font-size: 0.6em;">0</span></button>
-                    <button class="btn btn-theme rounded-pill px-4 py-1 fw-bold shadow-sm bounce-hover d-flex align-items-center gap-2 fs-7"><i class="fa-solid fa-circle-user"></i> Admin</button>
+                    <div class="dropdown">
+                        <button class="btn btn-theme rounded-pill px-3 py-1 fw-bold shadow-sm bounce-hover d-flex align-items-center gap-2 session-chip" type="button" id="menu-usuario" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fa-solid fa-circle-user"></i>
+                            <span class="session-chip-name" id="nav-nombre-usuario">Sin sesión</span>
+                            <i class="fa-solid fa-chevron-down small"></i>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end border-0 shadow-lg rounded-4 p-2 mt-2" aria-labelledby="menu-usuario">
+                            <li><span class="dropdown-item-text small text-muted fw-bold"><i class="fa-solid fa-shield-halved me-2 text-theme-solid"></i><span id="nav-rol-usuario">Sin sesión activa</span></span></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><button class="dropdown-item rounded-3 fw-bold text-danger" type="button" onclick="cerrarSesion()"><i class="fa-solid fa-right-from-bracket me-2"></i>Cerrar sesión</button></li>
+                        </ul>
+                    </div>
                 </div>
             </div>
         </nav>
@@ -79,9 +103,17 @@
             <div id="modulo-panel" class="modulo-vista active animate-fade-up">
                 <h2 class="fw-bold mb-4 titulo-modulo">Panel Principal</h2>
                 <div class="row g-4">
-                    <div class="col-12 col-md-6 col-lg-4"><div class="card ios-card border-0 p-4 h-100 summary-card" onclick="showModule('clientes')"><div class="d-flex justify-content-between align-items-center w-100"><div><h6 class="text-muted fw-bold mb-1 text-uppercase">Clientes</h6><h2 class="fw-bolder text-theme mb-0" id="count-clientes">0</h2></div><div class="icon-bubble card-bubble shadow-sm bounce-hover text-theme-solid"><i class="fa-solid fa-users fs-3"></i></div></div></div></div>
-                    <div class="col-12 col-md-6 col-lg-4"><div class="card ios-card border-0 p-4 h-100 summary-card" onclick="showModule('productos')"><div class="d-flex justify-content-between align-items-center w-100"><div><h6 class="text-muted fw-bold mb-1 text-uppercase">Productos</h6><h2 class="fw-bolder text-theme mb-0" id="count-productos">0</h2></div><div class="icon-bubble card-bubble shadow-sm bounce-hover text-theme-solid"><i class="fa-solid fa-box-open fs-3"></i></div></div></div></div>
-                    <div class="col-12 col-md-6 col-lg-4"><div class="card ios-card border-0 p-4 h-100 summary-card" onclick="showModule('historial_ventas')"><div class="d-flex justify-content-between align-items-center w-100"><div><h6 class="text-muted fw-bold mb-1 text-uppercase">Notas de Entrega</h6><h2 class="fw-bolder text-theme mb-0" id="count-ventas">0</h2></div><div class="icon-bubble card-bubble shadow-sm bounce-hover text-theme-solid"><i class="fa-solid fa-receipt fs-3"></i></div></div></div></div>
+                    <div class="col-12 col-md-6 col-lg-4" data-permiso="clientes"><div class="card ios-card border-0 p-4 h-100 summary-card" onclick="showModule('clientes')"><div class="d-flex justify-content-between align-items-center w-100"><div><h6 class="text-muted fw-bold mb-1 text-uppercase">Clientes</h6><h2 class="fw-bolder text-theme mb-0" id="count-clientes">0</h2></div><div class="icon-bubble card-bubble shadow-sm bounce-hover text-theme-solid"><i class="fa-solid fa-users fs-3"></i></div></div></div></div>
+                    <div class="col-12 col-md-6 col-lg-4" data-permiso="productos"><div class="card ios-card border-0 p-4 h-100 summary-card" onclick="showModule('productos')"><div class="d-flex justify-content-between align-items-center w-100"><div><h6 class="text-muted fw-bold mb-1 text-uppercase">Productos</h6><h2 class="fw-bolder text-theme mb-0" id="count-productos">0</h2></div><div class="icon-bubble card-bubble shadow-sm bounce-hover text-theme-solid"><i class="fa-solid fa-box-open fs-3"></i></div></div></div></div>
+                    <div class="col-12 col-md-6 col-lg-4" data-permiso="historial_ventas"><div class="card ios-card border-0 p-4 h-100 summary-card" onclick="showModule('historial_ventas')"><div class="d-flex justify-content-between align-items-center w-100"><div><h6 class="text-muted fw-bold mb-1 text-uppercase">Notas de Entrega</h6><h2 class="fw-bolder text-theme mb-0" id="count-ventas">0</h2></div><div class="icon-bubble card-bubble shadow-sm bounce-hover text-theme-solid"><i class="fa-solid fa-receipt fs-3"></i></div></div></div></div>
+                    <div class="col-12 col-md-6 col-lg-4" data-permiso="proveedores"><div class="card ios-card border-0 p-4 h-100 summary-card" onclick="showModule('proveedores')"><div class="d-flex justify-content-between align-items-center w-100"><div><h6 class="text-muted fw-bold mb-1 text-uppercase">Proveedores</h6><h2 class="fw-bolder text-theme mb-0" id="count-proveedores">0</h2></div><div class="icon-bubble card-bubble shadow-sm bounce-hover text-theme-solid"><i class="fa-solid fa-handshake fs-3"></i></div></div></div></div>
+                    <div class="col-12 col-md-6 col-lg-4" data-permiso="almacenes"><div class="card ios-card border-0 p-4 h-100 summary-card" onclick="showModule('almacenes')"><div class="d-flex justify-content-between align-items-center w-100"><div><h6 class="text-muted fw-bold mb-1 text-uppercase">Almacenes</h6><h2 class="fw-bolder text-theme mb-0" id="count-almacenes">0</h2></div><div class="icon-bubble card-bubble shadow-sm bounce-hover text-theme-solid"><i class="fa-solid fa-warehouse fs-3"></i></div></div></div></div>
+                    <div class="col-12 col-md-6 col-lg-4" data-permiso="categorias"><div class="card ios-card border-0 p-4 h-100 summary-card" onclick="showModule('categorias')"><div class="d-flex justify-content-between align-items-center w-100"><div><h6 class="text-muted fw-bold mb-1 text-uppercase">Categorías</h6><h2 class="fw-bolder text-theme mb-0" id="count-categorias">0</h2></div><div class="icon-bubble card-bubble shadow-sm bounce-hover text-theme-solid"><i class="fa-solid fa-tags fs-3"></i></div></div></div></div>
+                    <div class="col-12 col-md-6 col-lg-4" data-permiso="existencias"><div class="card ios-card border-0 p-4 h-100 summary-card" onclick="showModule('existencias')"><div class="d-flex justify-content-between align-items-center w-100"><div><h6 class="text-muted fw-bold mb-1 text-uppercase">Existencias</h6><h2 class="fw-bolder text-theme mb-0" id="count-existencias">0</h2></div><div class="icon-bubble card-bubble shadow-sm bounce-hover text-theme-solid"><i class="fa-solid fa-cubes fs-3"></i></div></div></div></div>
+                    <div class="col-12 col-md-6 col-lg-4" data-permiso="kardex"><div class="card ios-card border-0 p-4 h-100 summary-card" onclick="showModule('kardex')"><div class="d-flex justify-content-between align-items-center w-100"><div><h6 class="text-muted fw-bold mb-1 text-uppercase">Movimientos</h6><h2 class="fw-bolder text-theme mb-0" id="count-kardex">0</h2></div><div class="icon-bubble card-bubble shadow-sm bounce-hover text-theme-solid"><i class="fa-solid fa-clipboard-list fs-3"></i></div></div></div></div>
+                    <div class="col-12 col-md-6 col-lg-4" data-permiso="historial_ventas"><div class="card ios-card border-0 p-4 h-100 summary-card" onclick="showModule('historial_ventas')"><div class="d-flex justify-content-between align-items-center w-100"><div><h6 class="text-muted fw-bold mb-1 text-uppercase">Notas de Crédito</h6><h2 class="fw-bolder text-theme mb-0" id="count-notas_credito">0</h2></div><div class="icon-bubble card-bubble shadow-sm bounce-hover text-theme-solid"><i class="fa-solid fa-file-circle-minus fs-3"></i></div></div></div></div>
+                    <div class="col-12 col-md-6 col-lg-4" data-permiso="parametros"><div class="card ios-card border-0 p-4 h-100 summary-card" onclick="showModule('parametros')"><div class="d-flex justify-content-between align-items-center w-100"><div><h6 class="text-muted fw-bold mb-1 text-uppercase">Tasas cargadas</h6><h2 class="fw-bolder text-theme mb-0" id="count-tasas">0</h2></div><div class="icon-bubble card-bubble shadow-sm bounce-hover text-theme-solid"><i class="fa-solid fa-chart-line fs-3"></i></div></div></div></div>
+                    <div class="col-12 col-md-6 col-lg-4" data-permiso="usuarios"><div class="card ios-card border-0 p-4 h-100 summary-card" onclick="showModule('usuarios')"><div class="d-flex justify-content-between align-items-center w-100"><div><h6 class="text-muted fw-bold mb-1 text-uppercase">Usuarios activos</h6><h2 class="fw-bolder text-theme mb-0" id="count-usuarios">0</h2></div><div class="icon-bubble card-bubble shadow-sm bounce-hover text-theme-solid"><i class="fa-solid fa-user-gear fs-3"></i></div></div></div></div>
                 </div>
             </div>
                          
@@ -389,14 +421,118 @@
                 </div>
             </div>
 
-            <div id="modulo-configuracion" class="modulo-vista d-none animate-fade-up">
+            <div id="modulo-usuarios" class="modulo-vista d-none animate-fade-up" data-permiso="usuarios">
+                <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-2">
+                    <h2 class="fw-bold titulo-modulo d-flex align-items-center mb-0"><span class="icon-bubble title-bubble shadow-sm me-3 text-theme-solid"><i class="fa-solid fa-user-gear"></i></span> Usuarios y permisos</h2>
+                    <span class="badge rounded-pill bg-theme-light text-theme-solid px-3 py-2 fw-bold"><i class="fa-solid fa-shield-halved me-1"></i> Control de acceso</span>
+                </div>
+
+                <div class="row g-4">
+                    <div class="col-xl-5">
+                        <div class="card ios-card border-0 p-4 h-100 shadow-sm">
+                            <div class="d-flex align-items-center justify-content-between border-bottom pb-3 mb-3">
+                                <div>
+                                    <h5 class="fw-bolder text-theme-solid mb-1" id="titulo-form-usuario">Nuevo usuario</h5>
+                                    <p class="small text-muted mb-0">El nombre se mostrará en la barra superior y en el Kardex.</p>
+                                </div>
+                                <span class="icon-bubble title-bubble bg-theme-light text-theme-solid"><i class="fa-solid fa-user-plus"></i></span>
+                            </div>
+
+                            <form id="form-usuario" onsubmit="guardarUsuario(event)" autocomplete="off">
+                                <input type="hidden" id="usuario-id">
+                                <label class="small fw-bold text-muted mb-1 ms-1" for="usuario-nombre">Nombre visible</label>
+                                <input type="text" id="usuario-nombre" class="form-control ios-input mb-3" placeholder="Ej.: María Pérez" maxlength="100" required>
+
+                                <label class="small fw-bold text-muted mb-1 ms-1" for="usuario-usuario">Usuario</label>
+                                <input type="text" id="usuario-usuario" class="form-control ios-input mb-3" placeholder="Ej.: maria.perez" maxlength="50" autocomplete="username" required>
+
+                                <div class="row g-3 mb-2">
+                                    <div class="col-md-6">
+                                        <label class="small fw-bold text-muted mb-1 ms-1" for="usuario-contrasena">Contraseña</label>
+                                        <div class="input-group ios-input-group p-0 overflow-hidden">
+                                            <input type="password" id="usuario-contrasena" class="form-control border-0 bg-transparent py-2 px-3" placeholder="Mínimo 8 caracteres" minlength="8" autocomplete="new-password">
+                                            <button class="btn btn-light border-0" type="button" onclick="alternarVisibilidadContrasena('usuario-contrasena', this)" aria-label="Mostrar u ocultar contraseña"><i class="fa-solid fa-eye"></i></button>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="small fw-bold text-muted mb-1 ms-1" for="usuario-confirmar-contrasena">Confirmar contraseña</label>
+                                        <div class="input-group ios-input-group p-0 overflow-hidden">
+                                            <input type="password" id="usuario-confirmar-contrasena" class="form-control border-0 bg-transparent py-2 px-3" placeholder="Repita la contraseña" minlength="8" autocomplete="new-password">
+                                            <button class="btn btn-light border-0" type="button" onclick="alternarVisibilidadContrasena('usuario-confirmar-contrasena', this)" aria-label="Mostrar u ocultar contraseña"><i class="fa-solid fa-eye"></i></button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <p class="small text-muted mb-3"><i class="fa-solid fa-circle-info me-1"></i> Al editar, deje ambas contraseñas vacías para conservar la actual.</p>
+
+                                <div class="d-flex flex-wrap gap-4 p-3 rounded-4 bg-light border mb-4">
+                                    <div class="form-check form-switch mb-0">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="usuario-activo" checked>
+                                        <label class="form-check-label fw-bold" for="usuario-activo">Usuario activo</label>
+                                    </div>
+                                    <div class="form-check form-switch mb-0">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="usuario-es-admin">
+                                        <label class="form-check-label fw-bold" for="usuario-es-admin">Administrador total</label>
+                                    </div>
+                                </div>
+
+                                <h6 class="fw-bolder text-theme-solid border-bottom pb-2 mb-3"><i class="fa-solid fa-toggle-on me-2"></i>Accesos por módulo</h6>
+                                <p class="small text-muted">Activa únicamente las pantallas que esta persona puede consultar y utilizar.</p>
+                                <div class="row g-2 mb-4" id="permisos-usuario">
+                                    <div class="col-md-6"><div class="form-check form-switch permission-switch"><input class="form-check-input permiso-usuario" type="checkbox" role="switch" id="permiso-panel" value="panel"><label class="form-check-label" for="permiso-panel"><strong>Panel principal</strong><small class="d-block text-muted">Resumen del sistema</small></label></div></div>
+                                    <div class="col-md-6"><div class="form-check form-switch permission-switch"><input class="form-check-input permiso-usuario" type="checkbox" role="switch" id="permiso-ventas" value="ventas"><label class="form-check-label" for="permiso-ventas"><strong>Nota de entrega</strong><small class="d-block text-muted">Facturación</small></label></div></div>
+                                    <div class="col-md-6"><div class="form-check form-switch permission-switch"><input class="form-check-input permiso-usuario" type="checkbox" role="switch" id="permiso-historial_ventas" value="historial_ventas"><label class="form-check-label" for="permiso-historial_ventas"><strong>Historial de notas</strong><small class="d-block text-muted">Ventas y devoluciones</small></label></div></div>
+                                    <div class="col-md-6"><div class="form-check form-switch permission-switch"><input class="form-check-input permiso-usuario" type="checkbox" role="switch" id="permiso-clientes" value="clientes"><label class="form-check-label" for="permiso-clientes"><strong>Clientes</strong><small class="d-block text-muted">Contactos de venta</small></label></div></div>
+                                    <div class="col-md-6"><div class="form-check form-switch permission-switch"><input class="form-check-input permiso-usuario" type="checkbox" role="switch" id="permiso-proveedores" value="proveedores"><label class="form-check-label" for="permiso-proveedores"><strong>Proveedores</strong><small class="d-block text-muted">Contactos de compra</small></label></div></div>
+                                    <div class="col-md-6"><div class="form-check form-switch permission-switch"><input class="form-check-input permiso-usuario" type="checkbox" role="switch" id="permiso-almacenes" value="almacenes"><label class="form-check-label" for="permiso-almacenes"><strong>Almacenes</strong><small class="d-block text-muted">Ubicaciones</small></label></div></div>
+                                    <div class="col-md-6"><div class="form-check form-switch permission-switch"><input class="form-check-input permiso-usuario" type="checkbox" role="switch" id="permiso-categorias" value="categorias"><label class="form-check-label" for="permiso-categorias"><strong>Categorías</strong><small class="d-block text-muted">Clasificación</small></label></div></div>
+                                    <div class="col-md-6"><div class="form-check form-switch permission-switch"><input class="form-check-input permiso-usuario" type="checkbox" role="switch" id="permiso-productos" value="productos"><label class="form-check-label" for="permiso-productos"><strong>Productos</strong><small class="d-block text-muted">Catálogo</small></label></div></div>
+                                    <div class="col-md-6"><div class="form-check form-switch permission-switch"><input class="form-check-input permiso-usuario" type="checkbox" role="switch" id="permiso-existencias" value="existencias"><label class="form-check-label" for="permiso-existencias"><strong>Existencias</strong><small class="d-block text-muted">Stock por almacén</small></label></div></div>
+                                    <div class="col-md-6"><div class="form-check form-switch permission-switch"><input class="form-check-input permiso-usuario" type="checkbox" role="switch" id="permiso-movimientos" value="movimientos"><label class="form-check-label" for="permiso-movimientos"><strong>Movimientos</strong><small class="d-block text-muted">Entradas y ajustes</small></label></div></div>
+                                    <div class="col-md-6"><div class="form-check form-switch permission-switch"><input class="form-check-input permiso-usuario" type="checkbox" role="switch" id="permiso-kardex" value="kardex"><label class="form-check-label" for="permiso-kardex"><strong>Kardex</strong><small class="d-block text-muted">Trazabilidad</small></label></div></div>
+                                    <div class="col-md-6"><div class="form-check form-switch permission-switch"><input class="form-check-input permiso-usuario" type="checkbox" role="switch" id="permiso-parametros" value="parametros"><label class="form-check-label" for="permiso-parametros"><strong>Parámetros y tasas</strong><small class="d-block text-muted">Tasas y coberturas</small></label></div></div>
+                                    <div class="col-md-6"><div class="form-check form-switch permission-switch"><input class="form-check-input permiso-usuario" type="checkbox" role="switch" id="permiso-lista_precios" value="lista_precios"><label class="form-check-label" for="permiso-lista_precios"><strong>Lista de precios</strong><small class="d-block text-muted">Precios vigentes</small></label></div></div>
+                                    <div class="col-md-6"><div class="form-check form-switch permission-switch"><input class="form-check-input permiso-usuario" type="checkbox" role="switch" id="permiso-reportes" value="reportes"><label class="form-check-label" for="permiso-reportes"><strong>Reportes</strong><small class="d-block text-muted">Exportaciones</small></label></div></div>
+                                    <div class="col-md-6"><div class="form-check form-switch permission-switch"><input class="form-check-input permiso-usuario" type="checkbox" role="switch" id="permiso-configuracion" value="configuracion"><label class="form-check-label" for="permiso-configuracion"><strong>Configuración</strong><small class="d-block text-muted">Tema y reglas</small></label></div></div>
+                                    <div class="col-md-6"><div class="form-check form-switch permission-switch"><input class="form-check-input permiso-usuario" type="checkbox" role="switch" id="permiso-usuarios" value="usuarios"><label class="form-check-label" for="permiso-usuarios"><strong>Usuarios</strong><small class="d-block text-muted">Altas y permisos</small></label></div></div>
+                                </div>
+                                <div class="d-flex gap-2">
+                                    <button type="button" class="btn btn-light border rounded-pill fw-bold px-4 d-none" id="btn-cancelar-usuario" onclick="cancelarEdicionUsuario()">Cancelar</button>
+                                    <button type="submit" class="btn btn-theme rounded-pill fw-bold flex-grow-1 py-2 shadow-sm bounce-hover"><i class="fa-solid fa-floppy-disk me-2"></i><span id="texto-btn-usuario">Guardar usuario</span></button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="col-xl-7">
+                        <div class="card ios-card border-0 p-4 h-100 shadow-sm">
+                            <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 border-bottom pb-3 mb-3">
+                                <div>
+                                    <h5 class="fw-bolder text-theme-solid mb-1">Usuarios registrados</h5>
+                                    <p class="small text-muted mb-0">El sistema no permite quedar sin un administrador activo.</p>
+                                </div>
+                                <div class="input-group ios-input-group px-2 py-1" style="max-width: 280px;"><span class="input-group-text bg-transparent border-0 p-0 pe-2"><i class="fa-solid fa-magnifying-glass text-muted"></i></span><input type="search" id="buscar-usuarios" class="form-control bg-transparent border-0 p-0" placeholder="Buscar usuario..." oninput="filtrarUsuarios()"></div>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle ios-table w-100 text-center" id="tabla-usuarios">
+                                    <thead><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Accesos</th><th>Estado</th><th>Acciones</th></tr></thead>
+                                    <tbody><tr><td colspan="6" class="text-muted py-4">Cargando usuarios...</td></tr></tbody>
+                                </table>
+                            </div>
+                            <div class="alert alert-light border rounded-4 small text-muted mb-0 mt-3"><i class="fa-solid fa-life-ring text-theme-solid me-2"></i>La cuenta de emergencia se crea y protege desde el servidor; no se muestra ni se elimina desde esta pantalla.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="modulo-configuracion" class="modulo-vista d-none animate-fade-up" data-permiso="configuracion">
                 <h2 class="fw-bold mb-4 titulo-modulo d-flex align-items-center"><span class="icon-bubble title-bubble shadow-sm me-3 text-theme-solid"><i class="fa-solid fa-gear"></i></span> Configuración</h2>
                 <div class="row g-4">
                     <div class="col-md-5">
                         <div class="card ios-card border-0 p-4 h-100">
-                            <h5 class="fw-bold mb-3 text-theme-solid border-bottom pb-2">Sistema y Apariencia</h5>
+                            <h5 class="fw-bold mb-2 text-theme-solid border-bottom pb-2">Sistema y Apariencia Global</h5>
+                            <p class="small text-muted mb-3"><i class="fa-solid fa-cloud-arrow-up me-1 text-theme-solid"></i>Estos ajustes se guardan en la base de datos y se aplican a todas las sesiones.</p>
                             <label class="small fw-bold text-muted mb-1 ms-1">Nombre de Empresa</label>
-                            <input type="text" id="input-nombre-empresa" class="form-control ios-input mb-3 fw-bold text-center" placeholder="Ej: Mi Negocio">
+                            <input type="text" id="input-nombre-empresa" name="nombre_empresa" class="form-control ios-input mb-3 fw-bold text-center" placeholder="Ej: Mi Negocio" maxlength="120">
                             <label class="small fw-bold text-muted mb-1 ms-1">Estilo de Fuente</label>
                             <select class="form-select ios-input mb-3 fw-bold" id="selector-fuente" onchange="cambiarFuente()"><option value="'Plus Jakarta Sans', sans-serif">Plus Jakarta (Moderna)</option><option value="'Inter', sans-serif">Inter (Apple)</option><option value="'Roboto', sans-serif">Roboto</option><option value="'Poppins', sans-serif">Poppins</option><option value="Arial, sans-serif">Arial</option></select>
                             <label class="small fw-bold text-muted mb-1 ms-1">Tamaño de Fuente Global (12px - 24px)</label>
@@ -433,6 +569,37 @@
     </div>
 </div>
 <div id="modales-dinamicos"></div>
+
+<!-- Modal de inicio de sesión. El JS lo abre automáticamente cuando no existe una sesión válida. -->
+<div class="modal fade" id="modalLogin" tabindex="-1" aria-labelledby="titulo-modal-login" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered" style="max-width: 430px;">
+        <div class="modal-content ios-modal border-0 shadow-lg overflow-hidden">
+            <div class="theme-bg p-4 text-center text-white">
+                <div class="login-illustration bg-white text-theme-solid shadow-sm mb-3"><i class="fa-solid fa-lock fs-2"></i></div>
+                <h4 class="fw-bolder mb-1" id="titulo-modal-login">Bienvenido</h4>
+                <p class="mb-0 small opacity-75">Inicia sesión para acceder a <span id="login-brand-name">Dashboard</span>.</p>
+            </div>
+            <div class="modal-body p-4">
+                <form id="form-login" onsubmit="iniciarSesion(event)" autocomplete="on">
+                    <div id="login-mensaje" class="alert alert-danger border-0 rounded-4 d-none small fw-bold" role="alert"></div>
+                    <label for="login-usuario" class="small fw-bold text-muted mb-1 ms-1">Usuario</label>
+                    <div class="input-group ios-input-group mb-3 p-0 overflow-hidden">
+                        <span class="input-group-text bg-transparent border-0 px-3"><i class="fa-solid fa-user text-theme-solid"></i></span>
+                        <input type="text" id="login-usuario" class="form-control bg-transparent border-0 py-2 ps-0" placeholder="Tu usuario" autocomplete="username" required autofocus>
+                    </div>
+                    <label for="login-contrasena" class="small fw-bold text-muted mb-1 ms-1">Contraseña</label>
+                    <div class="input-group ios-input-group mb-4 p-0 overflow-hidden">
+                        <span class="input-group-text bg-transparent border-0 px-3"><i class="fa-solid fa-key text-theme-solid"></i></span>
+                        <input type="password" id="login-contrasena" class="form-control bg-transparent border-0 py-2 ps-0" placeholder="Tu contraseña" autocomplete="current-password" required>
+                        <button class="btn btn-light border-0 px-3" type="button" onclick="alternarVisibilidadContrasena('login-contrasena', this)" aria-label="Mostrar u ocultar contraseña"><i class="fa-solid fa-eye"></i></button>
+                    </div>
+                    <button type="submit" class="btn btn-theme rounded-pill fw-bold w-100 py-2 shadow-sm bounce-hover" id="btn-iniciar-sesion"><i class="fa-solid fa-right-to-bracket me-2"></i>Iniciar sesión</button>
+                </form>
+                <p class="small text-muted text-center mb-0 mt-4"><i class="fa-solid fa-shield-halved me-1"></i>Las credenciales se validan de forma segura en el servidor.</p>
+            </div>
+        </div>
+    </div>
+</div>
 
 <!-- Modal Notificaciones -->
 <div class="modal fade" id="modalNotificaciones" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content ios-modal border-0 shadow-lg"><div class="modal-header border-0 pb-0 pt-4 px-4 d-flex justify-content-between align-items-center"><h5 class="modal-title fw-bolder text-theme-solid"><i class="fa-solid fa-bell"></i> Asistente y Tareas Pendientes</h5><button type="button" class="btn-close rounded-circle bg-light p-2 m-0" data-bs-dismiss="modal"></button></div><div class="modal-body p-4 pt-3" id="cuerpo-notificaciones"><p class="text-muted text-center fw-bold">No hay tareas pendientes por ahora.</p></div></div></div></div>
@@ -494,7 +661,7 @@
                     </select>
                     <div id="campos_dinamicos_mov"></div>
                     <div class="d-flex justify-content-between align-items-center mt-4">
-                        <span class="small fw-bold text-muted"><i class="fa-solid fa-user"></i> Usuario actual: <span class="text-dark">Admin</span></span>
+                        <span class="small fw-bold text-muted"><i class="fa-solid fa-user"></i> Usuario actual: <span class="text-dark" data-usuario-actual>Sin sesión</span></span>
                         <button type="submit" class="btn btn-theme rounded-pill fw-bold px-4 py-2 shadow-sm bounce-hover">Procesar Operación</button>
                     </div>
                 </form>
