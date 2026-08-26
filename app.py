@@ -10,6 +10,11 @@ app = Flask(__name__)
 # Llave secreta necesaria para manejar las sesiones de los usuarios
 app.secret_key = os.environ.get('SECRET_KEY', 'super-secret-key-dashboard-2024')
 
+# --- CONFIGURACIÓN DE SESIONES PARA LA NUBE (RENDER) ---
+app.config['SESSION_COOKIE_SECURE'] = True      # Obligatorio para HTTPS en Render
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'None'  # Permite que el navegador acepte la cookie
+
 # --- WRAPPER PARA COMPATIBILIDAD SQLITE -> POSTGRESQL ---
 class PostgresConnWrapper:
     def __init__(self, conn):
