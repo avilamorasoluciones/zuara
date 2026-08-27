@@ -3,6 +3,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import os
 import psycopg2
 import psycopg2.extras
+from psycopg2 import pool  # <-- IMPORTACIÓN DEL POOL AGREGADA
 import datetime
 import json
 
@@ -14,6 +15,17 @@ app.secret_key = os.environ.get('SECRET_KEY', 'super-secret-key-dashboard-2024')
 app.config['SESSION_COOKIE_SECURE'] = True      # Obligatorio para HTTPS en Render
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'None'  # Permite que el navegador acepte la cookie
+
+# --- INICIALIZAR EL POOL GLOBAL DE CONEXIONES ---
+db_pool = None
+database_url = os.environ.get('DATABASE_URL')
+
+if database_url:
+    try:
+        # Mantiene entre 1 y 20 conexiones vivas listas para usar (ideal para Flask)
+        db_pool = psycopg2.pool.ThreadedConnectionPool(1, 20, database_url)
+    except Exception as e:
+        print(f"Error al iniciar el pool de conexiones: {e}")
 
 # --- WRAPPER PARA COMPATIBILIDAD SQLITE -> POSTGRESQL ---
 class PostgresConnWrapper:
@@ -35,14 +47,25 @@ class PostgresConnWrapper:
         self.conn.commit()
 
     def close(self):
-        self.conn.close()
+        # AHORA DEVOLVEMOS LA CONEXIÓN AL POOL EN LUGAR DE CERRARLA FÍSICAMENTE
+        if db_pool:
+            self.conn.rollback() # Limpia cualquier transacción a medias por seguridad
+            db_pool.putconn(self.conn)
+        else:
+            self.conn.close() # Fallback por si el pool no cargó
 
 def get_db_connection():
-    database_url = os.environ.get('DATABASE_URL')
-    if not database_url:
-        raise ValueError("No se encontró la variable de entorno DATABASE_URL")
-    conn = psycopg2.connect(database_url)
-    return PostgresConnWrapper(conn)
+    if db_pool:
+        # Tomamos una conexión instantánea del pool
+        conn = db_pool.getconn()
+        return PostgresConnWrapper(conn)
+    else:
+        # Fallback clásico si algo falla con el pool
+        database_url = os.environ.get('DATABASE_URL')
+        if not database_url:
+            raise ValueError("No se encontró la variable de entorno DATABASE_URL")
+        conn = psycopg2.connect(database_url)
+        return PostgresConnWrapper(conn)
 
 def safe_alter(conn, query):
     """Ejecuta un ALTER TABLE y si falla hace rollback seguro"""
