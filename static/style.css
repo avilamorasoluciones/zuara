@@ -55,6 +55,11 @@ body {
 .summary-card:hover .card-bubble { transform: scale(1.1) rotate(5deg); }
 .ios-modal { border-radius: 32px; }
 
+.resultado-brecha-card { display: flex; flex-direction: column; justify-content: center; min-height: 132px; }
+.resultado-brecha-label { min-height: 2.5em; overflow-wrap: anywhere; white-space: normal; }
+#res_fecha_pico { font-size: clamp(1.15rem, 2vw, 1.65rem); white-space: nowrap; }
+#res_hora_pico { min-height: 1.25rem; }
+
 .ios-input { border-radius: 18px; border: 1px solid #e5e5ea; padding: 14px 20px; background-color: #f9f9f9; font-weight: 500; transition: all 0.2s; }
 .ios-input:focus { box-shadow: 0 0 0 4px var(--theme-light); border-color: var(--theme-color-1); background-color: #ffffff; }
 .ios-input-group { border-radius: 18px; border: 1px solid #e5e5ea; background-color: #f9f9f9; transition: all 0.2s; }

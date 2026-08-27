@@ -169,6 +169,14 @@ def puede_agregar_tasa():
 def respuesta_sin_permiso():
     return jsonify({'error': 'No tienes permiso para realizar esta operación.'}), 403
 
+def es_ultimo_administrador_activo(conn, usuario_id):
+    """Indica si el usuario es el único administrador activo restante."""
+    usuario = conn.execute('SELECT es_admin, activo FROM usuarios WHERE id = ?', (usuario_id,)).fetchone()
+    if not usuario or not usuario['es_admin'] or not usuario['activo']:
+        return False
+    cantidad = conn.execute('SELECT COUNT(*) FROM usuarios WHERE es_admin = TRUE AND activo = TRUE').fetchone()[0]
+    return cantidad <= 1
+
 # ----------------- RUTAS DE SESIÓN Y AUTENTICACIÓN -----------------
 
 @app.route('/api/auth/login', methods=['POST'])
@@ -253,6 +261,8 @@ def api_configuracion():
     conn = get_db_connection()
     try:
         if request.method == 'POST':
+            if not tiene_permiso_en_sesion('configuracion'):
+                return respuesta_sin_permiso()
             d = request.json
             for k, v in d.items(): 
                 conn.execute("UPDATE configuracion SET valor = ? WHERE clave = ?", (str(v), k))
@@ -343,6 +353,35 @@ def api_ventas():
             
             if not c_nombre: return jsonify({'error': 'El nombre del cliente es obligatorio'}), 400
             if not d.get('detalles'): return jsonify({'error': 'El carrito está vacío'}), 400
+
+            consec_venta = str(d.get('consecutivo') or '').strip()
+            if not consec_venta:
+                return jsonify({'error': 'No se pudo generar el consecutivo de la nota de entrega.'}), 400
+            if conn.execute('SELECT id FROM ventas WHERE consecutivo = ?', (consec_venta,)).fetchone():
+                return jsonify({'error': 'Ya existe una nota de entrega con ese consecutivo.'}), 409
+
+            cantidades_por_producto = {}
+            for item in d['detalles']:
+                producto_id = safe_int(item.get('producto_id'))
+                cantidad = safe_float(item.get('cantidad'))
+                if producto_id <= 0 or cantidad <= 0:
+                    return jsonify({'error': 'Cada detalle de venta debe tener un producto y una cantidad mayor a cero.'}), 400
+                cantidades_por_producto[producto_id] = cantidades_por_producto.get(producto_id, 0) + cantidad
+
+            for producto_id, cantidad_solicitada in cantidades_por_producto.items():
+                stock = conn.execute('''SELECT
+                                        COALESCE(SUM(CASE
+                                            WHEN tipo IN ('Inventario Inicial', 'Compra', 'Devolución por venta') THEN cantidad
+                                            WHEN tipo IN ('Venta', 'Descarga por daño/motivo', 'Devolución por compra') THEN -cantidad
+                                            ELSE 0
+                                        END), 0)
+                                        - (
+                                            COALESCE(SUM(CASE WHEN almacen_destino_id IN (9998, 9999) THEN cantidad ELSE 0 END), 0)
+                                            - COALESCE(SUM(CASE WHEN almacen_origen_id IN (9998, 9999) THEN cantidad ELSE 0 END), 0)
+                                        ) AS disponible
+                                    FROM movimientos WHERE producto_id = ?''', (producto_id,)).fetchone()
+                if cantidad_solicitada > float(stock['disponible'] or 0):
+                    return jsonify({'error': 'No hay existencias suficientes para completar la venta.'}), 400
             
             existe = conn.execute('SELECT id FROM clientes WHERE nombre = ?', (c_nombre,)).fetchone()
             if existe:
@@ -352,13 +391,23 @@ def api_ventas():
                 conn.execute('INSERT INTO clientes (documento, nombre, telefono, correo, pais, estado, municipio, direccion_entrega, punto_referencia, coordenadas, tipo_envio, fecha_registro, registrado_por) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
                               (d.get('cliente_doc', 'PENDIENTE'), c_nombre, d.get('cliente_telefono', ''), d.get('cliente_correo', ''), d.get('env_pais', 'Venezuela'), d.get('env_estado', ''), d.get('env_ciudad', ''), d.get('env_direccion', ''), d.get('env_referencia', ''), d.get('env_coordenadas', ''), d.get('env_tipo', ''), ahora, usuario_actual))
             
-            consec_venta = d.get('consecutivo')
             total_eur = safe_float(d.get('total_eur'))
             total_bs = safe_float(d.get('total_bs'))
             
-            nc_id = d.get('nc_id')
+            nc_id = safe_int(d.get('nc_id'))
             if nc_id:
-                conn.execute("UPDATE notas_credito SET saldo_usado_eur = total_eur, estado = 'APLICADA' WHERE id = ?", (nc_id,))
+                nota_credito = conn.execute('''SELECT id, total_eur, total_bs, saldo_usado_eur, saldo_usado_bs, estado
+                                                FROM notas_credito WHERE id = ? FOR UPDATE''', (nc_id,)).fetchone()
+                if not nota_credito or nota_credito['estado'] != 'DISPONIBLE':
+                    return jsonify({'error': 'La nota de crédito seleccionada ya no está disponible.'}), 400
+                saldo_disponible = float(nota_credito['total_eur'] or 0) - float(nota_credito['saldo_usado_eur'] or 0)
+                if total_eur > saldo_disponible + 0.0001:
+                    return jsonify({'error': 'El total de la venta supera el saldo disponible de la nota de crédito.'}), 400
+                saldo_usado_eur = float(nota_credito['saldo_usado_eur'] or 0) + total_eur
+                saldo_usado_bs = float(nota_credito['saldo_usado_bs'] or 0) + total_bs
+                estado_nc = 'APLICADA' if saldo_usado_eur >= float(nota_credito['total_eur'] or 0) - 0.0001 else 'DISPONIBLE'
+                conn.execute('''UPDATE notas_credito SET saldo_usado_eur = ?, saldo_usado_bs = ?, estado = ? WHERE id = ?''',
+                             (saldo_usado_eur, saldo_usado_bs, estado_nc, nc_id))
             conn.execute('INSERT INTO ventas (consecutivo, fecha_registro, cliente_nombre, cliente_telefono, direccion_entrega, total_eur, total_bs, tasa_bcv_euro_aplicada, tasa_binance_aplicada, porcentaje_brecha_aplicado, estado, registrado_por, metodo_pago) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
                           (consec_venta, ahora, c_nombre, d.get('cliente_telefono',''), d.get('env_direccion',''), total_eur, total_bs, safe_float(d.get('tasa_bcv_euro')), safe_float(d.get('tasa_binance')), safe_float(d.get('brecha_dia')), d.get('estado_semaforo','EMITIDA'), usuario_actual, d.get('metodo_pago', '')))
             ult_mov = conn.execute('SELECT id FROM movimientos ORDER BY id DESC LIMIT 1').fetchone()
@@ -407,6 +456,41 @@ def registrar_devolucion():
         d = request.json
         ahora = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         consec_origen = d['consecutivo_origen']
+
+        detalles_validados = []
+        cantidades_solicitadas = {}
+        for item in d.get('detalles', []):
+            producto_id = safe_int(item.get('producto_id'))
+            cantidad = safe_float(item.get('cantidad_devolver'))
+            if producto_id <= 0 or cantidad <= 0:
+                continue
+            cantidades_solicitadas[producto_id] = cantidades_solicitadas.get(producto_id, 0) + cantidad
+
+        if not cantidades_solicitadas:
+            return jsonify({'error': 'Debe seleccionar al menos un producto con cantidad válida para devolver.'}), 400
+
+        for producto_id, cantidad_solicitada in cantidades_solicitadas.items():
+            vendido = conn.execute('''SELECT COALESCE(SUM(cantidad), 0) AS cantidad,
+                                             COALESCE(MAX(precio_unitario_euro_snapshot), 0) AS precio_eur,
+                                             COALESCE(MAX(precio_unitario_bs_snapshot), 0) AS precio_bs
+                                      FROM detalle_nota_entrega
+                                      WHERE consecutivo = ? AND producto_id = ?''', (consec_origen, producto_id)).fetchone()
+            devuelto = conn.execute('''SELECT COALESCE(SUM(d.cantidad), 0) AS cantidad
+                                       FROM detalle_nota_credito d
+                                       INNER JOIN notas_credito n ON n.consecutivo = d.consecutivo_nc
+                                       WHERE n.consecutivo_origen = ? AND d.producto_id = ?''', (consec_origen, producto_id)).fetchone()
+            disponible = float(vendido['cantidad'] or 0) - float(devuelto['cantidad'] or 0)
+            if cantidad_solicitada > disponible + 0.0001:
+                return jsonify({'error': 'La cantidad solicitada supera la cantidad disponible para devolución.'}), 400
+            detalles_validados.append({
+                'producto_id': producto_id,
+                'cantidad_devolver': cantidad_solicitada,
+                'precio_eur': float(vendido['precio_eur'] or 0),
+                'precio_bs': float(vendido['precio_bs'] or 0)
+            })
+
+        total_eur = sum(item['cantidad_devolver'] * item['precio_eur'] for item in detalles_validados)
+        total_bs = sum(item['cantidad_devolver'] * item['precio_bs'] for item in detalles_validados)
         
         # Generar Consecutivo Nota de Crédito
         consec_nc = consec_origen.replace('NE', 'NC', 1)
@@ -415,11 +499,11 @@ def registrar_devolucion():
             consec_nc = f"{consec_nc}-{int(datetime.datetime.now().timestamp())}"
         
         conn.execute('''INSERT INTO notas_credito (consecutivo, fecha_registro, consecutivo_origen, cliente_nombre, total_eur, total_bs, motivo, registrado_por, estado) VALUES (?,?,?,?,?,?,?,?,?)''',
-                      (consec_nc, ahora, consec_origen, d['cliente_nombre'], safe_float(d['total_eur']), safe_float(d['total_bs']), d['motivo'], usuario_actual, 'DISPONIBLE'))
+                      (consec_nc, ahora, consec_origen, d['cliente_nombre'], total_eur, total_bs, d['motivo'], usuario_actual, 'DISPONIBLE'))
         ult_mov = conn.execute('SELECT id FROM movimientos ORDER BY id DESC LIMIT 1').fetchone()
         num_m = (ult_mov[0] + 1) if ult_mov else 1
-        for item in d['detalles']:
-            if safe_float(item['cantidad_devolver']) > 0:
+        for item in detalles_validados:
+            if item['cantidad_devolver'] > 0:
                 consec_mov = f"MOV-{str(num_m).zfill(5)}"
                 motivo_kardex = f"Afecta a Nota: {consec_origen} | Motivo: {d['motivo']}"
                 
@@ -583,6 +667,9 @@ def api_crud(tabla, request, id=None):
         tabla_db = 'historico_tasas' if tabla == 'tasas' else tabla
         tabla_db = 'historico_coberturas' if tabla == 'coberturas' else tabla_db
 
+        if tabla == 'usuarios' and not tiene_permiso_en_sesion('usuarios'):
+            return respuesta_sin_permiso()
+
         # Un usuario con el permiso especial puede registrar una tasa desde el
         # dashboard, pero no consultar, editar ni borrar información sensible.
         if tabla == 'tasas':
@@ -669,6 +756,8 @@ def api_crud(tabla, request, id=None):
                               safe_float(d.get('porcentaje_cobertura')),
                               safe_float(d.get('factor_proteccion')), d.get('estado', 'ACTIVO'), id))
             elif tabla_db == 'usuarios':
+                if es_ultimo_administrador_activo(conn, id) and not (d.get('es_admin', False) and d.get('activo', True)):
+                    return jsonify({'error': 'Debe permanecer al menos un administrador activo en el sistema.'}), 400
                 if d.get('contrasena'):
                     hashed = generate_password_hash(d['contrasena'])
                     conn.execute("UPDATE usuarios SET nombre=?, usuario=?, contrasena=?, activo=?, es_admin=?, permisos=? WHERE id=?",
@@ -680,18 +769,19 @@ def api_crud(tabla, request, id=None):
             return jsonify({'status': 'ok'})
             
         elif request.method == 'DELETE':
-            # Evita borrar el usuario protegido o en caso de error relacional en otras tablas
-            if tabla_db == 'usuarios':
+            if tabla_db == 'ventas':
+                venta = conn.execute("SELECT consecutivo FROM ventas WHERE id=?", (id,)).fetchone()
+                if not venta:
+                    return jsonify({'error': 'La venta indicada no existe.'}), 404
+                conn.execute("DELETE FROM movimientos WHERE documento=?", (venta['consecutivo'],))
+                conn.execute("DELETE FROM detalle_nota_entrega WHERE consecutivo=?", (venta['consecutivo'],))
+                conn.execute('DELETE FROM ventas WHERE id=?', (id,))
+            elif tabla_db == 'usuarios':
+                if es_ultimo_administrador_activo(conn, id):
+                    return jsonify({'error': 'No se puede eliminar el último administrador activo.'}), 400
                 conn.execute('DELETE FROM usuarios WHERE id=? AND protegido=FALSE', (id,))
             else:
                 conn.execute(f'DELETE FROM {tabla_db} WHERE id=?', (id,))
-                
-            # Si se elimina una venta, hay que limpiar su rastro
-            if tabla_db == 'ventas':
-                v = conn.execute("SELECT consecutivo FROM ventas WHERE id=?", (id,)).fetchone()
-                if v:
-                    conn.execute("DELETE FROM movimientos WHERE documento=?", (v['consecutivo'],))
-                    conn.execute("DELETE FROM detalle_nota_entrega WHERE consecutivo=?", (v['consecutivo'],))
             conn.commit()
             return jsonify({'status': 'ok'})
     except Exception as e: return jsonify({'error': str(e)}), 500
@@ -699,5 +789,4 @@ def api_crud(tabla, request, id=None):
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
     app.run(host='0.0.0.0', port=port)

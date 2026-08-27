@@ -667,7 +667,8 @@ window.calcularCobertura = async function() {
         const euroBcv = Number(resultado.euro_bcv || 0);
         const brecha = Number(resultado.brecha || 0);
 
-        document.getElementById('res_fecha_pico').innerText = `${resultado.fecha}${resultado.hora ? ` ${resultado.hora}` : ''}`;
+        document.getElementById('res_fecha_pico').innerText = resultado.fecha || '--/--/----';
+        document.getElementById('res_hora_pico').innerText = resultado.hora ? `Hora: ${resultado.hora}` : '';
         document.getElementById('res_max_bin').innerText = binance.toFixed(2);
         document.getElementById('res_max_eur').innerText = euroBcv.toFixed(2);
         document.getElementById('res_cobertura').innerText = (brecha * 100).toFixed(2) + '%';
@@ -681,8 +682,15 @@ window.registrarCobertura = async function() {
     if (!exigirPermiso('parametros')) return;
     if(!window.coberturaCalculadaTemp) return alert("Calcule primero los parámetros.");
     let payload = { rango_evaluado: window.coberturaCalculadaTemp.rango, fecha_pico_maximo: window.coberturaCalculadaTemp.fecha_pico, porcentaje_cobertura: window.coberturaCalculadaTemp.cob, factor_proteccion: window.coberturaCalculadaTemp.factor, estado: 'ACTIVO' };
-    let r = await fetch('/api/coberturas', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
-    if(r.ok) { alert("Cobertura registrada correctamente."); cargarDataTotal(); }
+    try {
+        const r = await fetch('/api/coberturas', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+        const resultado = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(resultado.error || 'No se pudo registrar la cobertura.');
+        alert("Cobertura registrada correctamente.");
+        await cargarDataTotal();
+    } catch (error) {
+        alert(error.message || 'No se pudo registrar la cobertura.');
+    }
 };
 
 window.subirExcelTasas = async function() {
@@ -1254,11 +1262,14 @@ function agregarAlCarrito() {
     let desc = 0;
     if(configSis.permitir_descuentos === 'true') { desc = parseFloat(document.getElementById('v_prod_desc').value) || 0; }
          
-    if(!prodId || isNaN(cant)) return alert("Completa producto y cantidad.");
+    if(!prodId || !Number.isFinite(cant) || cant <= 0) return alert("Completa un producto y una cantidad mayor a cero.");
     if(window.estadoSemaforo.euro_bcv === 0) return alert("Falta la tasa oficial Euro de hoy.");
          
     let max = parseFloat(sel.options[sel.selectedIndex].getAttribute('data-max'));
-    if(cant > max) return alert(`Stock insuficiente. Solo hay ${max} disponibles para venta.`);
+    const yaEnCarrito = carritoVentas
+        .filter(item => String(item.producto_id) === String(prodId))
+        .reduce((total, item) => total + Number(item.cantidad || 0), 0);
+    if(cant + yaEnCarrito > max) return alert(`Stock insuficiente. Hay ${max} disponibles y ya agregaste ${yaEnCarrito} al carrito.`);
          
     const prod = dataGlobal.lista_precios_dinamica.find(p => p.id == prodId);
     if (!prod) return;
@@ -1333,6 +1344,8 @@ async function procesarVenta() {
 
     if (selPago === 'Aplicar Nota de Crédito') {
         if(!ncSeleccionadaParaPago) return alert("Seleccione una Nota de Crédito válida.");
+        const totalCarrito = carritoVentas.reduce((acc, val) => acc + val.total_eur, 0);
+        if (totalCarrito > ncSeleccionadaParaPago.saldo + 0.0001) return alert(`El total de la nota (€${totalCarrito.toFixed(2)}) supera el saldo disponible de la nota de crédito (€${ncSeleccionadaParaPago.saldo.toFixed(2)}).`);
         nc_id = ncSeleccionadaParaPago.id;
         pago = `NC Aplicada / ID: #${nc_id}`;
     } else if (selPago === 'Otro') {
