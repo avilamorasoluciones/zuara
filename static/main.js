@@ -16,7 +16,7 @@ let modalLoginInstancia = null;
 const PERMISOS = [
     'panel', 'ventas', 'historial_ventas', 'clientes', 'proveedores', 'almacenes',
     'categorias', 'productos', 'existencias', 'movimientos', 'kardex', 'parametros',
-    'lista_precios', 'reportes', 'configuracion', 'usuarios'
+    'agregar_tasa', 'lista_precios', 'reportes', 'configuracion', 'usuarios'
 ];
 
 const PERMISO_POR_MODULO = {
@@ -85,6 +85,18 @@ function inicializarUI() {
               <div class="col-6"><input type="text" id="t_brecha_print" class="form-control text-center bg-danger-subtle text-danger fw-bolder" placeholder="% Brecha Auto" readonly></div>
             </div>
         `)}
+        ${crearHTMLModal('coberturas', 'Editar Cobertura Cambiaria', `
+            <label class="small fw-bold text-muted ms-1 mb-1">Rango evaluado</label>
+            <input type="text" id="cob_rango" class="form-control ios-input mb-3 text-center" required>
+            <label class="small fw-bold text-muted ms-1 mb-1">Fecha del pico máximo</label>
+            <input type="text" id="cob_fecha_pico" class="form-control ios-input mb-3 text-center" placeholder="AAAA-MM-DD" required>
+            <div class="row g-2 mb-3">
+                <div class="col-6"><label class="small fw-bold text-muted ms-1 mb-1">% Cobertura</label><input type="number" min="-100" step="0.01" id="cob_porcentaje" class="form-control ios-input text-center" required></div>
+                <div class="col-6"><label class="small fw-bold text-muted ms-1 mb-1">Factor de protección</label><input type="number" step="0.01" id="cob_factor" class="form-control ios-input text-center" required></div>
+            </div>
+            <label class="small fw-bold text-muted ms-1 mb-1">Estado</label>
+            <select id="cob_estado" class="form-select ios-input mb-4 text-center fw-bold" required><option value="ACTIVO">ACTIVO</option><option value="INACTIVO">INACTIVO</option></select>
+        `)}
     `;
 
     document.getElementById('btn_confirmar_borrar_tasa').addEventListener('click', procesarEliminacionTasa);
@@ -113,8 +125,12 @@ function normalizarPermisos(permisos) {
 }
 
 function esAdministrador() { return Boolean(sesionActual && (sesionActual.es_admin || sesionActual.rol === 'ADMIN' || sesionActual.rol === 'ADMINISTRADOR')); }
-function tienePermiso(permiso) { return Boolean(sesionActual && (esAdministrador() || normalizarPermisos(sesionActual.permisos)[permiso])); }
-function primerModuloPermitido() { return PERMISOS.find(permiso => tienePermiso(permiso)) || 'panel'; }
+function tienePermiso(permiso) {
+    if (!sesionActual || esAdministrador()) return Boolean(sesionActual && esAdministrador());
+    const permisos = normalizarPermisos(sesionActual.permisos);
+    return Boolean(permisos[permiso] || (permiso === 'agregar_tasa' && permisos.parametros));
+}
+function primerModuloPermitido() { return Object.keys(PERMISO_POR_MODULO).find(modulo => tienePermiso(PERMISO_POR_MODULO[modulo])) || 'panel'; }
 function exigirPermiso(permiso, mensaje = 'No tienes permiso para realizar esta operación.') {
     if (!sesionActual) { abrirModalLogin(); return false; }
     if (!tienePermiso(permiso)) { alert(mensaje); return false; }
@@ -629,30 +645,36 @@ function cargarCoberturas() {
     if(!tb) return;
     tb.innerHTML = '';
     dataGlobal.coberturas.forEach(c => {
-        tb.innerHTML += `<tr><td>${c.fecha_registro}</td><td class="fw-bold">${c.rango_evaluado}</td><td>${c.fecha_pico_maximo}</td><td class="text-danger fw-bolder">${(c.porcentaje_cobertura*100).toFixed(2)}%</td><td class="text-success fw-bold">${c.factor_proteccion}</td><td><span class="badge bg-light text-dark border">${c.registrado_por}</span></td><td><span class="badge ${c.estado==='ACTIVO'?'bg-success':'bg-secondary'}">${c.estado}</span></td></tr>`;
+        const datos = encodeURIComponent(JSON.stringify(c));
+        const acciones = `<button class="btn-action btn-edit me-1" title="Editar cobertura" onclick="llenarModalEditar('coberturas', '${datos}')"><i class="fa-solid fa-pen"></i></button><button class="btn-action btn-delete" title="Eliminar cobertura" onclick="eliminarRegistro('coberturas', ${c.id})"><i class="fa-solid fa-trash"></i></button>`;
+        tb.innerHTML += `<tr><td>${c.fecha_registro}</td><td class="fw-bold">${c.rango_evaluado}</td><td>${c.fecha_pico_maximo}</td><td class="text-danger fw-bolder">${(c.porcentaje_cobertura*100).toFixed(2)}%</td><td class="text-success fw-bold">${c.factor_proteccion}</td><td><span class="badge bg-light text-dark border">${c.registrado_por}</span></td><td><span class="badge ${c.estado==='ACTIVO'?'bg-success':'bg-secondary'}">${c.estado}</span></td><td>${acciones}</td></tr>`;
     });
 }
 
-window.calcularCobertura = function() {
+window.calcularCobertura = async function() {
     if (!exigirPermiso('parametros')) return;
     let fIni = document.getElementById('q_fecha_ini').value;
     let fFin = document.getElementById('q_fecha_fin').value;
     if(!fIni || !fFin) return alert("Seleccione el rango de fechas.");
-    let fTasas = dataGlobal.tasas.filter(t => t.fecha >= fIni && t.fecha <= fFin);
-    if(fTasas.length === 0) return alert("No hay tasas en este rango.");
-    
-    let maxBin = Math.max(...fTasas.map(t => parseFloat(t.binance||0)));
-    let maxEur = Math.max(...fTasas.map(t => parseFloat(t.euro_bcv||0)));
-    let picos = fTasas.filter(t => parseFloat(t.binance||0) === maxBin);
-    let fpico = picos.length > 0 ? picos[0].fecha : '--/--/----';
-    let cob = (maxEur > 0) ? ((maxBin / maxEur) - 1) : 0;
-    if(cob < 0) cob = 0;
-    
-    document.getElementById('res_fecha_pico').innerText = fpico;
-    document.getElementById('res_max_bin').innerText = maxBin.toFixed(2);
-    document.getElementById('res_max_eur').innerText = maxEur.toFixed(2);
-    document.getElementById('res_cobertura').innerText = (cob * 100).toFixed(2) + '%';
-    window.coberturaCalculadaTemp = { rango: `${fIni} a ${fFin}`, fecha_pico: fpico, cob: cob, factor: 1 + cob };
+    window.coberturaCalculadaTemp = null;
+
+    try {
+        const respuesta = await fetch(`/api/tasas/brecha-maxima?fecha_inicio=${encodeURIComponent(fIni)}&fecha_fin=${encodeURIComponent(fFin)}`);
+        const resultado = await respuesta.json();
+        if (!respuesta.ok) throw new Error(resultado.error || 'No se pudo calcular la brecha máxima.');
+
+        const binance = Number(resultado.binance || 0);
+        const euroBcv = Number(resultado.euro_bcv || 0);
+        const brecha = Number(resultado.brecha || 0);
+
+        document.getElementById('res_fecha_pico').innerText = `${resultado.fecha}${resultado.hora ? ` ${resultado.hora}` : ''}`;
+        document.getElementById('res_max_bin').innerText = binance.toFixed(2);
+        document.getElementById('res_max_eur').innerText = euroBcv.toFixed(2);
+        document.getElementById('res_cobertura').innerText = (brecha * 100).toFixed(2) + '%';
+        window.coberturaCalculadaTemp = { rango: `${fIni} a ${fFin}`, fecha_pico: resultado.fecha, cob: brecha, factor: 1 + brecha };
+    } catch (error) {
+        alert(error.message || 'No se pudo calcular la brecha máxima.');
+    }
 };
 
 window.registrarCobertura = async function() {
@@ -792,7 +814,7 @@ function showModule(mId, refrescar = true) {
 }
 
 function abrirModal(m) {
-    const permiso = m === 'tasas' ? 'parametros' : m;
+    const permiso = m === 'tasas' ? 'agregar_tasa' : m;
     if (!tienePermiso(permiso)) return alert('No tienes permiso para realizar esta operación.');
     if (m === 'productos') {
         if (dataGlobal.categorias.length === 0) { if(confirm("¡Falta Categoría!\n¿Crear una ahora?")) abrirModal('categorias'); return; }
@@ -1046,7 +1068,7 @@ function llenarSelectores() {
 }
 
 function llenarModalEditar(m, encodedStr) {
-    if (!exigirPermiso(m === 'tasas' ? 'parametros' : m)) return;
+    if (!exigirPermiso(['tasas', 'coberturas'].includes(m) ? 'parametros' : m)) return;
     const d = JSON.parse(decodeURIComponent(encodedStr));
     document.getElementById(`id-${m}`).value = d.id;
     document.getElementById(`titulo-modal-${m}`).innerText = 'Editar Registro';
@@ -1080,13 +1102,21 @@ function llenarModalEditar(m, encodedStr) {
         document.getElementById('t_dpro').value = d.dolar_promedio; document.getElementById('t_zel').value = d.zelle;
         document.getElementById('t_pay').value = d.paypal;
     }
+    else if (m === 'coberturas') {
+        document.getElementById('cob_rango').value = d.rango_evaluado || '';
+        document.getElementById('cob_fecha_pico').value = d.fecha_pico_maximo || '';
+        document.getElementById('cob_porcentaje').value = (Number(d.porcentaje_cobertura || 0) * 100).toFixed(2);
+        document.getElementById('cob_factor').value = d.factor_proteccion ?? '';
+        document.getElementById('cob_estado').value = d.estado || 'ACTIVO';
+    }
     new bootstrap.Modal(document.getElementById(`modal-${m}`)).show();
 }
 
 async function guardarFormulario(e, m) {
     e.preventDefault();
-    if (!exigirPermiso(m === 'tasas' ? 'parametros' : m)) return;
     const id = document.getElementById(`id-${m}`).value;
+    const permiso = m === 'tasas' ? (id ? 'parametros' : 'agregar_tasa') : (m === 'coberturas' ? 'parametros' : m);
+    if (!exigirPermiso(permiso)) return;
     let payload = {};
          
     if(m === 'clientes') payload = { documento: document.getElementById('c_doc').value, nombre: document.getElementById('c_nom').value, telefono: document.getElementById('c_cod').value + document.getElementById('c_tel').value, correo: document.getElementById('c_cor').value, pais: document.getElementById('c_pais').value, estado: document.getElementById('c_est').value, municipio: document.getElementById('c_mun').value, direccion_entrega: document.getElementById('c_dir_ent').value, punto_referencia: document.getElementById('c_ref').value, coordenadas: document.getElementById('c_coo').value, tipo_envio: document.getElementById('c_tipo_env').value };
@@ -1099,6 +1129,15 @@ async function guardarFormulario(e, m) {
         if(horaFormat.length === 5) horaFormat += ":00";
         payload = { fecha: document.getElementById('t_fecha').value, hora: horaFormat, dolar_bcv: document.getElementById('t_dbcv').value, binance: document.getElementById('t_bin').value, bybit: document.getElementById('t_byb').value, dolar_promedio: document.getElementById('t_dpro').value, euro_bcv: document.getElementById('t_ebcv').value, zelle: document.getElementById('t_zel').value, paypal: document.getElementById('t_pay').value };
     }
+    else if(m === 'coberturas') {
+        payload = {
+            rango_evaluado: document.getElementById('cob_rango').value.trim(),
+            fecha_pico_maximo: document.getElementById('cob_fecha_pico').value,
+            porcentaje_cobertura: Number(document.getElementById('cob_porcentaje').value) / 100,
+            factor_proteccion: document.getElementById('cob_factor').value,
+            estado: document.getElementById('cob_estado').value
+        };
+    }
          
     let res = await fetch(id ? `/api/${m}/${id}` : `/api/${m}`, { method: id ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
     if(!res.ok) { alert("Hubo un error al guardar. Revisa que llenaste todos los campos."); return; }
@@ -1107,7 +1146,7 @@ async function guardarFormulario(e, m) {
 }
 
 function eliminarRegistro(m, id) {
-    const permiso = m === 'tasas' ? 'parametros' : (m === 'ventas' ? 'historial_ventas' : m);
+    const permiso = ['tasas', 'coberturas'].includes(m) ? 'parametros' : (m === 'ventas' ? 'historial_ventas' : m);
     if (!exigirPermiso(permiso)) return;
     if (m === 'tasas') {
         idTasaPendienteBorrar = id;

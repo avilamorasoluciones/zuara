@@ -107,6 +107,13 @@ def init_db():
         safe_alter(conn, "ALTER TABLE ventas ADD COLUMN total_bs REAL DEFAULT 0")
         safe_alter(conn, "ALTER TABLE notas_credito ADD COLUMN saldo_usado_eur REAL DEFAULT 0")
         safe_alter(conn, "ALTER TABLE notas_credito ADD COLUMN estado TEXT DEFAULT 'DISPONIBLE'")
+
+        # Mantiene la columna histórica alineada con la fórmula oficial de brecha.
+        conn.execute('''UPDATE historico_tasas
+                        SET brecha = CASE
+                            WHEN COALESCE(euro_bcv, 0) > 0 THEN (binance / euro_bcv) - 1
+                            ELSE 0
+                        END''')
         
         columnas_clientes = ['correo', 'pais', 'estado', 'municipio', 'punto_referencia', 'coordenadas', 'tipo_envio']
         for col in columnas_clientes:
@@ -144,6 +151,23 @@ def safe_float(val):
 def safe_int(val):
     try: return int(val) if val else 0
     except: return 0
+
+def tiene_permiso_en_sesion(permiso):
+    """Comprueba permisos de la sesión para operaciones sensibles."""
+    if not session.get('usuario_id'):
+        return False
+    if session.get('es_admin'):
+        return True
+    return permiso in session.get('permisos', [])
+
+def puede_gestionar_parametros():
+    return tiene_permiso_en_sesion('parametros')
+
+def puede_agregar_tasa():
+    return puede_gestionar_parametros() or tiene_permiso_en_sesion('agregar_tasa')
+
+def respuesta_sin_permiso():
+    return jsonify({'error': 'No tienes permiso para realizar esta operación.'}), 403
 
 # ----------------- RUTAS DE SESIÓN Y AUTENTICACIÓN -----------------
 
@@ -472,6 +496,8 @@ def get_historico_precios(fecha):
 
 @app.route('/api/tasas/upload', methods=['POST'])
 def upload_tasas():
+    if not puede_gestionar_parametros():
+        return respuesta_sin_permiso()
     if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
     f = request.files['file']
     usuario_actual = session.get('nombre', 'Sistema')
@@ -500,6 +526,42 @@ def upload_tasas():
         try: conn.close()
         except: pass
 
+@app.route('/api/tasas/brecha-maxima', methods=['GET'])
+def obtener_brecha_maxima():
+    """Devuelve la fila real que contiene la mayor brecha del rango indicado."""
+    if not puede_gestionar_parametros():
+        return respuesta_sin_permiso()
+
+    fecha_inicio = request.args.get('fecha_inicio', '').strip()
+    fecha_fin = request.args.get('fecha_fin', '').strip()
+    if not fecha_inicio or not fecha_fin:
+        return jsonify({'error': 'Las fechas de inicio y fin son obligatorias.'}), 400
+    if fecha_inicio > fecha_fin:
+        return jsonify({'error': 'La fecha de inicio no puede ser mayor a la fecha final.'}), 400
+
+    conn = get_db_connection()
+    try:
+        fila = conn.execute('''
+            SELECT id, fecha, hora, binance, euro_bcv,
+                   ((binance::double precision / euro_bcv::double precision) - 1) AS brecha
+            FROM historico_tasas
+            WHERE fecha >= ?
+              AND fecha <= ?
+              AND COALESCE(euro_bcv, 0) > 0
+            ORDER BY ((binance::double precision / euro_bcv::double precision) - 1) DESC,
+                     fecha ASC, hora ASC, id ASC
+            LIMIT 1
+        ''', (fecha_inicio, fecha_fin)).fetchone()
+
+        if not fila:
+            return jsonify({'error': 'No hay tasas válidas con EURO BCV mayor a cero en el rango seleccionado.'}), 404
+
+        return jsonify(dict(fila))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
+
 # ----------------- RUTAS DINÁMICAS (CRUD GENÉRICO) -----------------
 @app.route('/api/<tabla>', methods=['GET', 'POST'])
 def api_tabla(tabla):
@@ -520,6 +582,18 @@ def api_crud(tabla, request, id=None):
         ahora = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         tabla_db = 'historico_tasas' if tabla == 'tasas' else tabla
         tabla_db = 'historico_coberturas' if tabla == 'coberturas' else tabla_db
+
+        # Un usuario con el permiso especial puede registrar una tasa desde el
+        # dashboard, pero no consultar, editar ni borrar información sensible.
+        if tabla == 'tasas':
+            if request.method == 'POST' and not puede_agregar_tasa():
+                return respuesta_sin_permiso()
+            if request.method != 'POST' and not puede_gestionar_parametros():
+                return respuesta_sin_permiso()
+
+        # El historial de coberturas es parte del módulo crítico de parámetros.
+        if tabla == 'coberturas' and not puede_gestionar_parametros():
+            return respuesta_sin_permiso()
         
         if request.method == 'GET':
             query = f'SELECT * FROM {tabla_db} ORDER BY id DESC'
@@ -585,7 +659,15 @@ def api_crud(tabla, request, id=None):
                              (safe_int(d.get('categoria_id')) or None, safe_int(d.get('proveedor_id')) or None, d.get('descripcion',''), d.get('unidad_medida',''), safe_int(d.get('stock_minimo')), safe_float(d.get('precio_usd', 0)), d.get('estado','ACTIVO'), d.get('codigo_barras',''), d.get('foto',''), id))
             elif tabla_db == 'historico_tasas':
                 conn.execute('UPDATE historico_tasas SET fecha=?, hora=?, dolar_bcv=?, binance=?, bybit=?, dolar_promedio=?, euro_bcv=?, zelle=?, paypal=?, brecha=? WHERE id=?', 
-                             (d['fecha'], d['hora'], safe_float(d.get('dolar_bcv')), safe_float(d.get('binance')), safe_float(d.get('bybit')), safe_float(d.get('dolar_promedio')), safe_float(d.get('euro_bcv')), safe_float(d.get('zelle')), safe_float(d.get('paypal')), safe_float(d.get('brecha')), id))
+                             (d['fecha'], d['hora'], safe_float(d.get('dolar_bcv')), safe_float(d.get('binance')), safe_float(d.get('bybit')), safe_float(d.get('dolar_promedio')), safe_float(d.get('euro_bcv')), safe_float(d.get('zelle')), safe_float(d.get('paypal')), (safe_float(d.get('binance')) / safe_float(d.get('euro_bcv'))) - 1 if safe_float(d.get('euro_bcv')) > 0 else 0, id))
+            elif tabla_db == 'historico_coberturas':
+                conn.execute('''UPDATE historico_coberturas
+                                SET rango_evaluado=?, fecha_pico_maximo=?, porcentaje_cobertura=?,
+                                    factor_proteccion=?, estado=?
+                                WHERE id=?''',
+                             (d.get('rango_evaluado', ''), d.get('fecha_pico_maximo', ''),
+                              safe_float(d.get('porcentaje_cobertura')),
+                              safe_float(d.get('factor_proteccion')), d.get('estado', 'ACTIVO'), id))
             elif tabla_db == 'usuarios':
                 if d.get('contrasena'):
                     hashed = generate_password_hash(d['contrasena'])
@@ -617,4 +699,5 @@ def api_crud(tabla, request, id=None):
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
     app.run(host='0.0.0.0', port=port)
