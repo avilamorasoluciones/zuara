@@ -5,7 +5,7 @@ let carritoVentas = [];
 let tasaActualEur = 0;
 let stockPorAlmacenTemp = [];
 let notificacionesGlobales = {};
-let configSis = { nombre_empresa: 'Zuara', theme_color_1: '#d4af37', theme_color_2: '#1a1a1a', font_family: "'Plus Jakarta Sans', sans-serif", permitir_descuentos: 'true', font_size: '14' };
+let configSis = { nombre_empresa: 'ZUARA APP', theme_color_1: '#d4af37', theme_color_2: '#1a1a1a', font_family: "'Plus Jakarta Sans', sans-serif", permitir_descuentos: 'true', font_size: '14' };
 let idTasaPendienteBorrar = null;
 let itemsDevolucionTemporal = [];
 let notasCreditoClienteActual = [];
@@ -139,7 +139,7 @@ function exigirPermiso(permiso, mensaje = 'No tienes permiso para realizar esta 
 
 function aplicarConfiguracionEnInterfaz(configuracion) {
     configSis = { ...configSis, ...(configuracion || {}) };
-    const nombre = (configSis.nombre_empresa || configSis.company_name || 'Zuara').trim() || 'Zuara';
+    const nombre = (configSis.nombre_empresa || configSis.company_name || 'ZUARA APP').trim() || 'ZUARA APP';
     const fuente = configSis.font_family || configSis.app_font || "'Plus Jakarta Sans', sans-serif";
     const tamanio = String(configSis.font_size || '14');
     const color1 = configSis.theme_color_1 || configSis.tema_color_1 || '#d4af37';
@@ -1770,7 +1770,7 @@ window.onload = async () => {
     } else {
         actualizarSesionEnInterfaz();
         aplicarPermisosInterfaz();
-        abrirModalLogin('Inicia sesión para acceder a Zuara.');
+        abrirModalLogin('Inicia sesión para acceder a ZUARA APP.');
     }
 };
 
