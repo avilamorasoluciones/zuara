@@ -58,7 +58,7 @@
             <a href="#" class="list-group-item list-group-item-action nav-link" data-permiso="categorias" data-modulo="categorias" onclick="showModule('categorias')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-tags"></i></span> Categorías</a>
             <a href="#" class="list-group-item list-group-item-action nav-link" data-permiso="productos" data-modulo="productos" onclick="showModule('productos')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-box-open"></i></span> Productos</a>
             <a href="#" class="list-group-item list-group-item-action nav-link" data-permiso="existencias" data-modulo="existencias" onclick="showModule('existencias')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-cubes"></i></span> Existencias</a>
-            <a href="#" class="list-group-item list-group-item-action nav-link" data-permiso="movimientos" data-modulo="movimientos" onclick="abrirModalMovimiento()"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-arrow-right-arrow-left"></i></span> + Nuevo Movimiento</a>
+            <a href="#" class="list-group-item list-group-item-action nav-link" data-permiso="movimientos" data-admin-inventario="true" data-modulo="movimientos" onclick="abrirModalMovimiento()"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-arrow-right-arrow-left"></i></span> + Nuevo Movimiento</a>
             <a href="#" class="list-group-item list-group-item-action nav-link" data-permiso="kardex" data-modulo="kardex" onclick="showModule('kardex')"><span class="icon-bubble sidebar-bubble"><i class="fa-solid fa-clipboard-list"></i></span> Kardex</a>
 
             <p class="small fw-bold ms-3 mt-4 mb-2 text-uppercase letter-spacing sidebar-subtitle" data-permiso-grupo="sistema">Sistema</p>
@@ -671,6 +671,51 @@
     </div>
 </div>
 
+<!-- Modal Corrección Administrativa de Existencias -->
+<div class="modal fade" id="modalAjusteExistencia" tabindex="-1" aria-labelledby="titulo-ajuste-existencia" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content ios-modal border-0 shadow-lg">
+            <div class="modal-header border-0 pb-0 pt-4 px-4 d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="modal-title fw-bolder text-theme-solid" id="titulo-ajuste-existencia"><i class="fa-solid fa-shield-halved me-2"></i>Corrección Administrativa</h5>
+                    <p class="small text-muted mb-0">Solo disponible para el usuario administrador <strong>admin</strong>.</p>
+                </div>
+                <button type="button" class="btn-close rounded-circle bg-light p-2 m-0" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <form onsubmit="guardarAjusteExistencia(event)">
+                    <input type="hidden" id="ajuste-existencia-producto-id">
+                    <div class="bg-light rounded-4 border p-3 mb-3">
+                        <span class="small text-muted fw-bold d-block">Producto</span>
+                        <span id="ajuste-existencia-producto" class="fw-bolder text-dark">-</span>
+                    </div>
+                    <label for="ajuste-existencia-carga" class="small fw-bold text-muted mb-1 ms-1">Carga a corregir</label>
+                    <select id="ajuste-existencia-carga" class="form-select ios-input mb-3 fw-bold" onchange="cargarDatosCargaParaAjuste()" required>
+                        <option value="" selected disabled>Selecciona la carga...</option>
+                    </select>
+                    <div class="row g-3 mb-3">
+                        <div class="col-6">
+                            <label for="ajuste-existencia-cantidad" class="small fw-bold text-muted mb-1 ms-1">Cantidad corregida</label>
+                            <input type="number" min="0" step="0.01" id="ajuste-existencia-cantidad" class="form-control ios-input text-center fw-bold" required>
+                        </div>
+                        <div class="col-6">
+                            <label for="ajuste-existencia-costo" class="small fw-bold text-muted mb-1 ms-1">Costo unitario corregido</label>
+                            <input type="number" min="0" step="0.01" id="ajuste-existencia-costo" class="form-control ios-input text-center fw-bold" required>
+                        </div>
+                    </div>
+                    <div class="alert alert-warning border-0 rounded-4 small fw-bold">
+                        <i class="fa-solid fa-triangle-exclamation me-1"></i>
+                        La carga original no se borra ni se sobreescribe. El sistema registra la diferencia como un movimiento administrativo en Kardex y recalcula el stock automáticamente.
+                    </div>
+                    <label for="ajuste-existencia-motivo" class="small fw-bold text-muted mb-1 ms-1">Motivo administrativo</label>
+                    <textarea id="ajuste-existencia-motivo" class="form-control ios-input mb-4" rows="3" maxlength="500" placeholder="Explique por qué se corrige la carga..." required></textarea>
+                    <button type="submit" class="btn btn-theme w-100 rounded-pill fw-bold py-2 shadow-sm bounce-hover"><i class="fa-solid fa-check me-2"></i>Registrar corrección en Kardex</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Modal Detalle de Existencias (Stock Breakdown) -->
 <div class="modal fade" id="modalDetalleExistencia" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
@@ -716,51 +761,6 @@
     </div>
 </div>
 
-
-<!-- Modal Ajuste Administrativo de Existencias -->
-<div class="modal fade" id="modalAjusteExistencia" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered modal-lg">
-        <div class="modal-content ios-modal border-0 shadow-lg">
-            <div class="modal-header bg-theme-light border-0 py-3 px-4 d-flex justify-content-between align-items-center">
-                <div>
-                    <h5 class="modal-title fw-bolder text-theme-solid"><i class="fa-solid fa-pen-to-square me-2"></i> Editar / Ajustar Carga</h5>
-                    <div class="small text-muted fw-bold mt-1" id="ajuste-existencia-codigo">CÓDIGO: ---</div>
-                </div>
-                <button type="button" class="btn-close rounded-circle p-2 m-0 bg-white shadow-sm border" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body p-4">
-                <input type="hidden" id="ajuste-existencia-producto-id">
-                <h5 class="fw-bolder text-dark mb-3" id="ajuste-existencia-producto">Producto</h5>
-                <form onsubmit="guardarAjusteExistencia(event)">
-                    <label class="small fw-bold text-muted mb-1">Carga existente</label>
-                    <select id="ajuste-existencia-cargas" class="form-select ios-input mb-3 text-center fw-bold" onchange="cargarDatosCargaParaAjuste()" required>
-                        <option value="" disabled selected>Selecciona la carga a corregir...</option>
-                    </select>
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <label class="small fw-bold text-muted mb-1">Cantidad corregida</label>
-                            <input type="number" min="0" step="0.01" id="ajuste-existencia-cantidad" class="form-control ios-input text-center fw-bold" required>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="small fw-bold text-muted mb-1">Costo unitario corregido ($)</label>
-                            <input type="number" min="0" step="0.0001" id="ajuste-existencia-costo" class="form-control ios-input text-center fw-bold" required>
-                        </div>
-                    </div>
-                    <div id="ajuste-existencia-resumen" class="bg-light rounded-3 p-3 mt-3 mb-3"></div>
-                    <label class="small fw-bold text-muted mb-1">Motivo del ajuste administrativo</label>
-                    <textarea id="ajuste-existencia-motivo" class="form-control ios-input mb-4" rows="3" placeholder="Explica por qué se corrige la carga o el costo..." required></textarea>
-                    <div class="alert alert-warning border-0 rounded-4 small mb-4">
-                        <i class="fa-solid fa-shield-halved me-2"></i>
-                        La carga original no se elimina ni se sobrescribe. El sistema registra la diferencia en el Kardex como <strong>Ajuste administrativo</strong>, conservando la auditoría y el responsable.
-                    </div>
-                    <button type="submit" class="btn btn-theme w-100 rounded-pill fw-bold py-2 shadow-sm bounce-hover">
-                        <i class="fa-solid fa-floppy-disk me-2"></i>Guardar ajuste administrativo
-                    </button>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
 
 <!-- Modal Devoluciones por Venta -->
 <div class="modal fade" id="modalDevolucionesVenta" tabindex="-1">

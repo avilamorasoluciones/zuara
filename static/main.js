@@ -34,7 +34,7 @@ const modulosUI = [
     { id: 'categorias', icono: 'fa-tags', titulo: 'Categorías', headers: ['Nombre', 'Descripción', 'Registro', 'Acciones'] },
     { id: 'productos', icono: 'fa-box-open', titulo: 'Productos', headers: ['Foto', 'Cód.', 'Descripción', 'Categoría', 'U. Medida', 'Precio Obj. USD', 'Mínimo', 'Estado', 'Acciones'] },
     { id: 'existencias', icono: 'fa-cubes', titulo: 'Existencias Físicas', headers: ['CÓD.', 'DESCRIPCIÓN', 'U. MEDIDA', 'STOCK MÍN.', 'TOTAL FÍSICO (A + B)', 'STOCK DISPONIBLE VENTA (A)', 'EN ALMACÉN DEVOLUCIONES (B)', 'COSTO UNIT.', 'TOTAL COSTO DE ADQUISICIÓN', 'ACCIÓN'] },
-    { id: 'kardex', icono: 'fa-clipboard-list', titulo: 'Kardex General', headers: ['Consec.', 'Fecha', 'Movimiento', 'Producto', 'Cant.', 'Costo U.', 'Responsable', 'Detalles / Motivo'] },
+    { id: 'kardex', icono: 'fa-clipboard-list', titulo: 'Kardex General', headers: ['Consec.', 'Fecha', 'Movimiento', 'Producto', 'Cant.', 'Costo U.', 'Responsable', 'Detalles / Motivo', 'Acciones'] },
     { id: 'historial_ventas', icono: 'fa-receipt', titulo: 'Historial de Notas de Entrega', headers: ['Nº Entrega', 'Fecha', 'Cliente', 'Teléfono', 'Total', 'Devoluciones', 'Acciones'] }
 ];
 
@@ -243,6 +243,9 @@ function aplicarPermisosInterfaz() {
     });
     document.querySelectorAll('[data-permiso-accion]').forEach(elemento => {
         elemento.classList.toggle('d-none', !tienePermiso(elemento.dataset.permisoAccion));
+    });
+    document.querySelectorAll('[data-admin-inventario]').forEach(elemento => {
+        elemento.classList.toggle('d-none', sesionActual?.usuario !== 'admin');
     });
 
     const grupos = {
@@ -977,84 +980,75 @@ window.abrirDetalleExistencia = async function(prodId) {
 
 
 window.abrirAjusteExistencia = async function(prodId) {
-    if (sesionActual?.usuario !== 'admin') {
-        alert('Solo el administrador puede ajustar cargas o costos de existencias.');
-        return;
-    }
-    const producto = dataGlobal.existencias.find(e => e.id === prodId);
-    if (!producto) return;
+    if (sesionActual?.usuario !== 'admin') return alert('Solo el usuario administrador (admin) puede corregir existencias.');
+    if (!exigirPermiso('existencias')) return;
+    const producto = dataGlobal.existencias.find(item => String(item.id) === String(prodId));
+    if (!producto) return alert('No se encontró el producto seleccionado.');
 
-    document.getElementById('ajuste-existencia-producto-id').value = prodId;
-    document.getElementById('ajuste-existencia-producto').innerText = producto.descripcion || 'Producto';
-    document.getElementById('ajuste-existencia-codigo').innerText = `CÓDIGO: ${producto.codigo_barras || 'N/A'}`;
-    document.getElementById('ajuste-existencia-cargas').innerHTML = '<option value="">Cargando cargas...</option>';
+    document.getElementById('ajuste-existencia-producto-id').value = producto.id;
+    document.getElementById('ajuste-existencia-producto').innerText = `${producto.descripcion} (${producto.codigo_barras || 'Sin código'})`;
+    const select = document.getElementById('ajuste-existencia-carga');
+    select.innerHTML = '<option value="" selected disabled>Cargando cargas...</option>';
     document.getElementById('ajuste-existencia-cantidad').value = '';
     document.getElementById('ajuste-existencia-costo').value = '';
     document.getElementById('ajuste-existencia-motivo').value = '';
-    document.getElementById('ajuste-existencia-resumen').innerHTML = '';
-
     new bootstrap.Modal(document.getElementById('modalAjusteExistencia')).show();
+
     try {
-        const respuesta = await fetch(`/api/existencias/${prodId}/cargas`);
-        if (respuesta.redirected || !respuesta.ok) throw new Error('No se pudieron cargar las cargas existentes.');
-        const cargas = await respuesta.json();
-        const select = document.getElementById('ajuste-existencia-cargas');
-        if (!Array.isArray(cargas) || !cargas.length) {
-            select.innerHTML = '<option value="">No hay cargas de Inventario Inicial o Compra para ajustar</option>';
+        const res = await fetch(`/api/existencias/${prodId}/cargas`);
+        const datos = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(datos.error || 'No se pudieron cargar las cargas.');
+        if (!datos.length) {
+            select.innerHTML = '<option value="" selected disabled>No hay cargas iniciales o compras para corregir</option>';
             return;
         }
-        select.innerHTML = '<option value="" disabled selected>Selecciona la carga a corregir...</option>' + cargas.map(c =>
-            `<option value="${Number(c.id)}" data-cantidad="${Number(c.cantidad || 0)}" data-costo="${Number(c.costo_unitario || 0)}">${escapeHTML(c.consecutivo || `Carga #${c.id}`)} · ${escapeHTML(c.tipo)} · ${Number(c.cantidad || 0)} unid. · $${Number(c.costo_unitario || 0).toFixed(2)} · ${escapeHTML(c.almacen_destino_nombre || 'Sin almacén')}</option>`
+        select.innerHTML = '<option value="" selected disabled>Selecciona la carga...</option>' + datos.map(c =>
+            `<option value="${c.id}" data-cantidad="${c.cantidad_actual}" data-costo="${c.costo_actual}" data-almacen="${escapeHTML(c.almacen_destino_nombre || 'Sin almacén')}">${escapeHTML(c.consecutivo)} · ${escapeHTML(c.tipo)} · ${escapeHTML(c.almacen_destino_nombre || 'Sin almacén')} · Cant. ${Number(c.cantidad_actual).toFixed(2)} · Costo $${Number(c.costo_actual).toFixed(2)}</option>`
         ).join('');
     } catch (error) {
-        document.getElementById('ajuste-existencia-cargas').innerHTML = '<option value="">Error al cargar las cargas</option>';
-        alert(error.message || 'No se pudieron cargar las cargas existentes.');
+        select.innerHTML = '<option value="" selected disabled>Error cargando las cargas</option>';
+        alert(error.message || 'No se pudieron cargar las cargas.');
     }
 };
 
 window.cargarDatosCargaParaAjuste = function() {
-    const select = document.getElementById('ajuste-existencia-cargas');
-    const option = select?.selectedOptions?.[0];
+    const select = document.getElementById('ajuste-existencia-carga');
+    const option = select.options[select.selectedIndex];
     if (!option || !option.value) return;
-    document.getElementById('ajuste-existencia-cantidad').value = option.dataset.cantidad || '0';
-    document.getElementById('ajuste-existencia-costo').value = option.dataset.costo || '0';
-    document.getElementById('ajuste-existencia-resumen').innerHTML = '<span class="text-muted small">Los valores mostrados son los actuales. El sistema registrará únicamente la diferencia como ajuste administrativo.</span>';
+    document.getElementById('ajuste-existencia-cantidad').value = Number(option.dataset.cantidad || 0);
+    document.getElementById('ajuste-existencia-costo').value = Number(option.dataset.costo || 0).toFixed(2);
 };
 
 window.guardarAjusteExistencia = async function(evento) {
     evento.preventDefault();
-    if (sesionActual?.usuario !== 'admin') {
-        alert('Solo el administrador puede ajustar cargas o costos de existencias.');
-        return;
-    }
-    const productoId = Number(document.getElementById('ajuste-existencia-producto-id').value);
-    const cargaId = Number(document.getElementById('ajuste-existencia-cargas').value);
+    if (sesionActual?.usuario !== 'admin') return alert('Solo el usuario administrador (admin) puede corregir existencias.');
+    const productoId = document.getElementById('ajuste-existencia-producto-id').value;
+    const cargaId = document.getElementById('ajuste-existencia-carga').value;
     const cantidad = Number(document.getElementById('ajuste-existencia-cantidad').value);
     const costo = Number(document.getElementById('ajuste-existencia-costo').value);
     const motivo = document.getElementById('ajuste-existencia-motivo').value.trim();
+    if (!productoId || !cargaId) return alert('Selecciona una carga.');
+    if (!Number.isFinite(cantidad) || cantidad < 0) return alert('La cantidad corregida no puede ser negativa.');
+    if (!Number.isFinite(costo) || costo < 0) return alert('El costo corregido no puede ser negativo.');
+    if (!motivo) return alert('El motivo administrativo es obligatorio.');
+
     const boton = evento.submitter;
-
-    if (!productoId || !cargaId) return alert('Selecciona una carga existente.');
-    if (!Number.isFinite(cantidad) || cantidad < 0) return alert('La cantidad debe ser un número mayor o igual a cero.');
-    if (!Number.isFinite(costo) || costo < 0) return alert('El costo debe ser un número mayor o igual a cero.');
-    if (!motivo) return alert('Indica el motivo del ajuste administrativo.');
-
     try {
-        boton.disabled = true;
-        const respuesta = await fetch(`/api/existencias/${productoId}/ajustar`, {
-            method: 'POST', headers: {'Content-Type': 'application/json'},
+        if (boton) boton.disabled = true;
+        const res = await fetch(`/api/existencias/${productoId}/ajustar`, {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
             body: JSON.stringify({carga_id: cargaId, cantidad, costo_unitario: costo, motivo})
         });
-        if (respuesta.redirected) throw new Error('La sesión administrativa ya no es válida.');
-        const resultado = await respuesta.json().catch(() => ({}));
-        if (!respuesta.ok) throw new Error(resultado.error || 'No se pudo registrar el ajuste administrativo.');
+        const resultado = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(resultado.error || 'No se pudo registrar la corrección.');
         bootstrap.Modal.getInstance(document.getElementById('modalAjusteExistencia')).hide();
-        alert(`Ajuste administrativo registrado correctamente (${resultado.consecutivo}).`);
+        alert(`Corrección registrada en Kardex.\nMovimiento: ${resultado.consecutivo}`);
         await cargarDataTotal();
     } catch (error) {
-        alert(error.message || 'No se pudo registrar el ajuste.');
+        alert(error.message || 'No se pudo registrar la corrección.');
     } finally {
-        boton.disabled = false;
+        if (boton) boton.disabled = false;
     }
 };
 
@@ -1091,10 +1085,8 @@ function renderTabla(m) {
         else if(m === 'existencias') {
             const disp = i.stock_disponible_venta;
             const alerta = disp <= i.stock_minimo ? 'text-danger fw-bolder fs-5' : 'text-success fw-bolder fs-5';
-            // El ojo se mantiene visible para cualquier usuario con acceso al módulo.
-            // La edición de cargas/costos se limita estrictamente al usuario 'admin'.
-            const btnEditarExistencia = sesionActual?.usuario === 'admin'
-                ? `<button class="btn btn-sm btn-edit btn-action me-1 shadow-sm bounce-hover" onclick="abrirAjusteExistencia(${i.id})" title="Editar / Ajustar carga o costo"><i class="fa-solid fa-pen"></i></button>`
+            const btnAjuste = sesionActual?.usuario === 'admin'
+                ? `<button class="btn btn-sm btn-warning text-dark shadow-sm bounce-hover rounded-circle me-1" onclick="abrirAjusteExistencia(${i.id})" title="Corregir carga / costo"><i class="fa-solid fa-pen"></i></button>`
                 : '';
             html = `<tr>
                 <td class="text-muted">${i.codigo_barras||'-'}</td>
@@ -1106,7 +1098,7 @@ function renderTabla(m) {
                 <td class="text-danger fw-bolder">${i.stock_devoluciones}</td>
                 <td class="fw-bold">${formatMoney(i.costo_unit)}</td>
                 <td class="fw-bold text-theme-solid">${formatMoney(i.total_costo)}</td>
-                <td>${btnEditarExistencia}<button class="btn btn-sm btn-info text-white shadow-sm bounce-hover rounded-circle" onclick="abrirDetalleExistencia(${i.id})" title="Ver detalle"><i class="fa-solid fa-eye"></i></button></td>
+                <td class="text-nowrap">${btnAjuste}<button class="btn btn-sm btn-info text-white shadow-sm bounce-hover rounded-circle" onclick="abrirDetalleExistencia(${i.id})" title="Ver detalles y almacenes"><i class="fa-solid fa-eye"></i></button></td>
             </tr>`;
         }
         else if(m === 'kardex') {
@@ -1115,6 +1107,7 @@ function renderTabla(m) {
             else if(['Venta', 'Descarga por daño/motivo', 'Devolución por compra'].includes(i.tipo)) tipoBadge = 'bg-danger';
             else if(i.tipo === 'Traspaso') tipoBadge = 'bg-primary';
             else if(i.tipo === 'Devolución por venta') tipoBadge = 'bg-info text-dark';
+            else if(i.tipo === 'Reversión administrativa') tipoBadge = 'bg-warning text-dark';
             else if(i.tipo === 'Ajuste administrativo') tipoBadge = 'bg-warning text-dark';
                          
             let txtDetalle = "";
@@ -1125,7 +1118,11 @@ function renderTabla(m) {
             if (txtDetalle === "") txtDetalle = "Sin detalles adicionales.";
                          
             let htmlDetalle = `<button class="btn btn-sm btn-theme rounded-pill px-3 py-1 fw-bold fs-7 shadow-sm bounce-hover" onclick="mostrarInfoModal('Detalles de Operación', '${txtDetalle.replace(/'/g, "\\'")}')">Ver más</button>`;
-            html = `<tr><td class="fw-bold">${i.consecutivo}</td><td class="small text-muted fw-bold">${i.fecha_registro}</td><td><span class="badge ${tipoBadge}">${i.tipo}</span></td><td class="fw-bold text-theme-solid text-truncate" style="max-width:150px;">${i.producto_nombre}</td><td class="fw-bolder fs-6">${i.cantidad}</td><td class="fw-bold">${formatMoney(i.costo_unitario)}</td><td><span class="badge bg-light text-dark border">${i.registrado_por}</span></td><td>${htmlDetalle}</td></tr>`;
+            const tiposAnulables = ['Inventario Inicial', 'Compra', 'Descarga por daño/motivo', 'Traspaso', 'Devolución por compra'];
+            const btnAnular = sesionActual?.usuario === 'admin' && tiposAnulables.includes(i.tipo)
+                ? `<button class="btn-action btn-delete ms-1" onclick="anularMovimientoKardex(${i.id})" title="Anular movimiento"><i class="fa-solid fa-rotate-left"></i></button>`
+                : '';
+            html = `<tr><td class="fw-bold">${i.consecutivo}</td><td class="small text-muted fw-bold">${i.fecha_registro}</td><td><span class="badge ${tipoBadge}">${i.tipo}</span></td><td class="fw-bold text-theme-solid text-truncate" style="max-width:150px;">${i.producto_nombre}</td><td class="fw-bolder fs-6">${i.cantidad}</td><td class="fw-bold">${formatMoney(i.costo_unitario)}</td><td><span class="badge bg-light text-dark border">${i.registrado_por}</span></td><td>${htmlDetalle}</td><td>${btnAnular}</td></tr>`;
         }
         else if(m === 'historial_ventas') {
             let bC = i.estado.includes('DEVUELTO') ? 'bg-danger' : 'bg-success';
@@ -1236,9 +1233,10 @@ async function guardarFormulario(e, m) {
     }
          
     let res = await fetch(id ? `/api/${m}/${id}` : `/api/${m}`, { method: id ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
-    if(!res.ok) { alert("Hubo un error al guardar. Revisa que llenaste todos los campos."); return; }
+    const resultado = await res.json().catch(() => ({}));
+    if(!res.ok) { alert(resultado.error || "Hubo un error al guardar. Revisa que llenaste todos los campos."); return; }
     bootstrap.Modal.getInstance(document.getElementById(`modal-${m}`)).hide();
-    cargarDataTotal();
+    await cargarDataTotal();
 }
 
 function eliminarRegistro(m, id) {
@@ -1264,14 +1262,32 @@ async function procesarEliminacionTasa() {
 
 async function ejecutarBorrado(m, id) {
     let res = await fetch(`/api/${m}/${id}`, { method: 'DELETE' });
+    const resultado = await res.json().catch(() => ({}));
     if(res.ok) { 
          if(m!=='tasas') alert("Eliminado exitosamente."); 
-         cargarDataTotal(); 
+         await cargarDataTotal(); 
     }
-    else { alert("Hubo un error al eliminar. Verifica si hay dependencias de base de datos."); }
+    else { alert(resultado.error || "Hubo un error al eliminar. Verifica las dependencias del registro."); }
 }
 
+window.anularMovimientoKardex = async function(id) {
+    if (sesionActual?.usuario !== 'admin') return alert('Solo el usuario administrador (admin) puede anular movimientos.');
+    const movimiento = dataGlobal.kardex.find(item => String(item.id) === String(id));
+    if (!movimiento) return alert('No se encontró el movimiento seleccionado.');
+    if (!confirm(`¿Anular ${movimiento.consecutivo} (${movimiento.tipo})?\n\nNo se borrará el registro original. Se creará una reversión administrativa y el stock se recalculará automáticamente.`)) return;
+    try {
+        const res = await fetch(`/api/kardex/${id}/anular`, { method: 'POST', headers: {'Content-Type':'application/json'} });
+        const resultado = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(resultado.error || 'No se pudo anular el movimiento.');
+        alert(`Movimiento anulado correctamente.\nReversión: ${resultado.consecutivo}`);
+        await cargarDataTotal();
+    } catch (error) {
+        alert(error.message || 'No se pudo anular el movimiento.');
+    }
+};
+
 function abrirModalMovimiento() {
+    if (sesionActual?.usuario !== 'admin') return alert('Solo el usuario administrador (admin) puede registrar movimientos especiales de inventario.');
     if (!exigirPermiso('movimientos')) return;
     const form = document.getElementById('form-movimiento');
     if(form) form.reset();
@@ -1315,6 +1331,7 @@ async function actualizarCamposMovimiento() {
 
 async function guardarMovimiento(e) {
     e.preventDefault();
+    if (sesionActual?.usuario !== 'admin') return alert('Solo el usuario administrador (admin) puede registrar movimientos especiales de inventario.');
     if (!exigirPermiso('movimientos')) return;
     const t = document.getElementById('mov_tipo').value;
     let p = { producto_id: document.getElementById('mov_prod').value, tipo: t, cantidad: document.getElementById('mov_cant').value };
