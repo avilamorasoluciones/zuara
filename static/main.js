@@ -302,10 +302,47 @@ function cerrarModalLogin() {
 }
 
 function normalizarSesion(respuesta) {
-    const usuario = respuesta?.usuario || respuesta?.session || respuesta;
-    if (!usuario || respuesta?.autenticado === false || respuesta?.authenticated === false) return null;
-    if (!(usuario.id || usuario.usuario || usuario.username)) return null;
-    return { ...usuario, permisos: normalizarPermisos(usuario.permisos) };
+    if (!respuesta || respuesta.autenticado === false || respuesta.authenticated === false) {
+        return null;
+    }
+
+    // El backend actual devuelve directamente el objeto de sesión.
+    // No debemos confundir respuesta.usuario (el nombre de usuario)
+    // con un objeto de sesión.
+    const sesion = (
+        respuesta.session &&
+        typeof respuesta.session === 'object'
+    )
+        ? respuesta.session
+        : respuesta;
+
+    const usuario = sesion.usuario || sesion.username;
+
+    if (!sesion.id && !usuario) {
+        return null;
+    }
+
+    return {
+        ...sesion,
+        usuario: usuario || '',
+        nombre: sesion.nombre || usuario || '',
+        activo: usuario === 'admin'
+            ? true
+            : (
+                sesion.activo === true ||
+                sesion.activo === 1 ||
+                sesion.activo === '1' ||
+                String(sesion.estado || '').toUpperCase() === 'ACTIVO'
+            ),
+        es_admin: usuario === 'admin'
+            ? true
+            : Boolean(
+                sesion.es_admin ||
+                sesion.rol === 'ADMIN' ||
+                sesion.rol === 'ADMINISTRADOR'
+            ),
+        permisos: normalizarPermisos(sesion.permisos)
+    };
 }
 
 async function cargarSesionActual() {
