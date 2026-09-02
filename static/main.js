@@ -18,6 +18,10 @@ const PERMISOS = [
     'categorias', 'productos', 'existencias', 'movimientos', 'kardex', 'parametros',
     'agregar_tasa', 'lista_precios', 'reportes', 'configuracion', 'usuarios'
 ];
+const CRUD_MODULOS = ['ventas','historial_ventas','clientes','proveedores','almacenes','categorias','productos','existencias','movimientos','kardex','parametros','lista_precios','reportes','configuracion','usuarios'];
+const CRUD_ACCIONES = ['read','create','update','delete'];
+const CRUD_ETIQUETAS = {read:'Consultar',create:'Crear',update:'Editar',delete:'Eliminar'};
+const CRUD_NOMBRES = {ventas:'Nota de entrega',historial_ventas:'Historial de notas',clientes:'Clientes',proveedores:'Proveedores',almacenes:'Almacenes',categorias:'Categorías',productos:'Productos',existencias:'Existencias',movimientos:'Movimientos',kardex:'Kardex',parametros:'Parámetros y tasas',lista_precios:'Lista de precios',reportes:'Reportes',configuracion:'Configuración',usuarios:'Usuarios'};
 
 const PERMISO_POR_MODULO = {
     panel: 'panel', ventas: 'ventas', historial_ventas: 'historial_ventas',
@@ -39,11 +43,12 @@ const modulosUI = [
 ];
 
 function inicializarUI() {
+    construirPermisosCRUD();
     const contenedor = document.getElementById('vistas-dinamicas');
     const contenedorModales = document.getElementById('modales-dinamicos');
          
     modulosUI.forEach(m => {
-        let btnNuevo = m.id !== 'existencias' && m.id !== 'kardex' && m.id !== 'historial_ventas' ? `<button class="btn btn-theme rounded-pill shadow bounce-hover px-4 py-2 fw-bold" data-permiso-accion="${m.id}" onclick="abrirModal('${m.id}')">+ Nuevo</button>` : '';
+        let btnNuevo = m.id !== 'existencias' && m.id !== 'kardex' && m.id !== 'historial_ventas' ? `<button class="btn btn-theme rounded-pill shadow bounce-hover px-4 py-2 fw-bold" data-crud-modulo="${m.id}" data-crud-accion="create" onclick="abrirModal('${m.id}')">+ Nuevo</button>` : '';
         let btnExtra = m.id === 'historial_ventas' ? `<button class="btn btn-danger rounded-pill shadow bounce-hover px-4 py-2 fw-bold ms-2" onclick="abrirModalDevoluciones()"><i class="fa-solid fa-rotate-left"></i> Devoluciones por Venta</button>` : '';
                  
         contenedor.innerHTML += `
@@ -124,18 +129,43 @@ function normalizarPermisos(permisos) {
     return permisos && typeof permisos === 'object' ? permisos : {};
 }
 
-function esAdministrador() { return Boolean(sesionActual && (sesionActual.es_admin || sesionActual.rol === 'ADMIN' || sesionActual.rol === 'ADMINISTRADOR')); }
+function esAdministrador() { return Boolean(sesionActual && (sesionActual.usuario === 'admin' || sesionActual.es_admin || sesionActual.rol === 'ADMIN' || sesionActual.rol === 'ADMINISTRADOR')); }
+function esSuperAdmin() { return Boolean(sesionActual && sesionActual.usuario === 'admin'); }
 function tienePermiso(permiso) {
-    if (!sesionActual || esAdministrador()) return Boolean(sesionActual && esAdministrador());
+    if (!sesionActual || !usuarioEstaActivo(sesionActual)) return false;
+    if (permiso === 'usuarios' && !esAdministrador()) return false;
+    if (esAdministrador()) return true;
     const permisos = normalizarPermisos(sesionActual.permisos);
-    return Boolean(permisos[permiso] || (permiso === 'agregar_tasa' && permisos.parametros));
+    return Boolean(permisos[permiso] || CRUD_ACCIONES.some(a => permisos[`${permiso}_${a}`]) || (permiso === 'agregar_tasa' && permisos.parametros));
 }
+function tienePermisoAccion(modulo, accion) {
+    if (!sesionActual || !usuarioEstaActivo(sesionActual)) return false;
+    if (esAdministrador()) return true;
+    const permisos = normalizarPermisos(sesionActual.permisos);
+    return Boolean(permisos[`${modulo}_${accion}`] || permisos[modulo]);
+}
+function construirPermisosCRUD() {
+    const cont=document.getElementById('permisos-usuario'); if(!cont) return;
+    cont.innerHTML=`<div class="col-12"><div class="table-responsive border rounded-4 bg-white shadow-sm"><table class="table align-middle mb-0 text-center"><thead class="table-light"><tr><th class="text-start">Módulo</th>${CRUD_ACCIONES.map(a=>`<th>${CRUD_ETIQUETAS[a]}</th>`).join('')}</tr></thead><tbody>${CRUD_MODULOS.map(m=>`<tr><td class="text-start fw-bold">${CRUD_NOMBRES[m]}</td>${CRUD_ACCIONES.map(a=>`<td><div class="form-check form-switch d-inline-flex"><input class="form-check-input permiso-usuario-crud" type="checkbox" data-modulo="${m}" data-accion="${a}" id="permiso-${m}-${a}"></div></td>`).join('')}</tr>`).join('')}</tbody></table></div></div>`;
+}
+function aplicarEstadoPermisosCRUD(usuario=null) {
+    const permisos=normalizarPermisos(usuario?.permisos);
+    document.querySelectorAll('.permiso-usuario-crud').forEach(c=>{
+        const m=c.dataset.modulo, a=c.dataset.accion;
+        const soloAdmin = (m==='usuarios') || (m==='movimientos' && a!=='read') || (m==='existencias' && a!=='read') || (m==='kardex' && a!=='read');
+        c.checked=Boolean(permisos[`${m}_${a}`]||permisos[m]||usuario?.es_admin);
+        c.disabled=Boolean(usuario?.es_admin||usuario?.usuario==='admin'||soloAdmin);
+    });
+}
+
 function primerModuloPermitido() { return Object.keys(PERMISO_POR_MODULO).find(modulo => tienePermiso(PERMISO_POR_MODULO[modulo])) || 'panel'; }
 function exigirPermiso(permiso, mensaje = 'No tienes permiso para realizar esta operación.') {
     if (!sesionActual) { abrirModalLogin(); return false; }
     if (!tienePermiso(permiso)) { alert(mensaje); return false; }
     return true;
 }
+
+function exigirPermisoAccion(modulo, accion) { return tienePermisoAccion(modulo, accion) ? true : (alert('No tienes permiso para realizar esta operación.'), false); }
 
 function aplicarConfiguracionEnInterfaz(configuracion) {
     configSis = { ...configSis, ...(configuracion || {}) };
@@ -241,11 +271,8 @@ function aplicarPermisosInterfaz() {
     document.querySelectorAll('[data-permiso]').forEach(elemento => {
         elemento.classList.toggle('d-none', !tienePermiso(elemento.dataset.permiso));
     });
-    document.querySelectorAll('[data-permiso-accion]').forEach(elemento => {
-        elemento.classList.toggle('d-none', !tienePermiso(elemento.dataset.permisoAccion));
-    });
-    document.querySelectorAll('[data-admin-inventario]').forEach(elemento => {
-        elemento.classList.toggle('d-none', sesionActual?.usuario !== 'admin');
+    document.querySelectorAll('[data-crud-modulo]').forEach(elemento => {
+        elemento.classList.toggle('d-none', !tienePermisoAccion(elemento.dataset.crudModulo, elemento.dataset.crudAccion));
     });
 
     const grupos = {
@@ -527,7 +554,7 @@ function renderTablaUsuarios() {
 
     cuerpo.innerHTML = usuarios.map(usuario => {
         const permisos = permisosDeUsuario(usuario);
-        const esAdmin = Boolean(usuario.es_admin || usuario.rol === 'ADMIN' || usuario.rol === 'ADMINISTRADOR');
+        const esAdmin = Boolean(usuario.es_admin || usuario.usuario === 'admin' || usuario.rol === 'ADMIN' || usuario.rol === 'ADMINISTRADOR');
         const activo = usuarioEstaActivo(usuario);
         const datosCodificados = encodeURIComponent(JSON.stringify(usuario));
         const puedeEliminar = !usuario.protegido && String(usuario.id) !== String(sesionActual?.id);
@@ -535,7 +562,7 @@ function renderTablaUsuarios() {
             <td class="fw-bold text-start">${escapeHTML(usuario.nombre || '-')}</td>
             <td><span class="badge bg-light text-dark border">${escapeHTML(usuario.usuario || '-')}</span></td>
             <td><span class="badge ${esAdmin ? 'bg-theme text-white' : 'bg-light text-dark border'}">${esAdmin ? 'Administrador' : 'Personalizado'}</span></td>
-            <td><span class="badge bg-theme-light text-theme-solid">${esAdmin ? 'Todos los módulos' : `${permisos.length} módulo${permisos.length === 1 ? '' : 's'}`}</span></td>
+            <td><span class="badge bg-theme-light text-theme-solid">${esAdmin ? 'Todos los módulos' : `${CRUD_MODULOS.reduce((n,m)=>n+CRUD_ACCIONES.filter(a=>normalizarPermisos(usuario.permisos)[`${m}_${a}`]).length,0)} permisos CRUD`}</span></td>
             <td><span class="badge ${activo ? 'bg-success' : 'bg-secondary'}">${activo ? 'Activo' : 'Inactivo'}</span></td>
             <td class="text-nowrap"><button class="btn-action btn-edit me-1" type="button" onclick="editarUsuario('${datosCodificados}')" title="Editar usuario"><i class="fa-solid fa-pen"></i></button>${puedeEliminar ? `<button class="btn-action btn-delete" type="button" onclick="eliminarUsuario(${Number(usuario.id)})" title="Eliminar usuario"><i class="fa-solid fa-trash"></i></button>` : ''}</td>
         </tr>`;
@@ -550,6 +577,9 @@ function restablecerFormularioUsuario() {
     document.getElementById('usuario-id').value = '';
     document.getElementById('usuario-activo').checked = true;
     document.querySelectorAll('.permiso-usuario').forEach(control => { control.checked = false; });
+    document.querySelectorAll('.permiso-usuario-crud').forEach(control => { control.checked = false; control.disabled = false; });
+    document.getElementById('usuario-es-admin').disabled = false;
+    document.getElementById('usuario-activo').disabled = false;
     document.getElementById('titulo-form-usuario').innerText = 'Nuevo usuario';
     document.getElementById('texto-btn-usuario').innerText = 'Guardar usuario';
     document.getElementById('btn-cancelar-usuario').classList.add('d-none');
@@ -558,7 +588,7 @@ function restablecerFormularioUsuario() {
 function cancelarEdicionUsuario() { restablecerFormularioUsuario(); }
 
 function editarUsuario(datosCodificados) {
-    if (!tienePermiso('usuarios')) return alert('No tienes permiso para administrar usuarios.');
+    if (!esAdministrador()) return alert('Solo un administrador puede administrar usuarios.');
     try {
         const usuario = JSON.parse(decodeURIComponent(datosCodificados));
         restablecerFormularioUsuario();
@@ -569,6 +599,13 @@ function editarUsuario(datosCodificados) {
         document.getElementById('usuario-es-admin').checked = Boolean(usuario.es_admin || usuario.rol === 'ADMIN' || usuario.rol === 'ADMINISTRADOR');
         const permisos = normalizarPermisos(usuario.permisos);
         document.querySelectorAll('.permiso-usuario').forEach(control => { control.checked = Boolean(permisos[control.value]); });
+        aplicarEstadoPermisosCRUD(usuario);
+        const esRaiz = usuario.usuario === 'admin';
+        if (esRaiz) { alert('La cuenta raíz admin es inmutable desde este módulo.'); return; }
+        document.getElementById('usuario-es-admin').disabled = esRaiz;
+        document.getElementById('usuario-activo').disabled = esRaiz;
+        document.getElementById('usuario-nombre').readOnly = esRaiz;
+        document.getElementById('usuario-usuario').readOnly = esRaiz;
         document.getElementById('titulo-form-usuario').innerText = `Editar: ${usuario.nombre || usuario.usuario}`;
         document.getElementById('texto-btn-usuario').innerText = 'Guardar cambios';
         document.getElementById('btn-cancelar-usuario').classList.remove('d-none');
@@ -580,13 +617,14 @@ function editarUsuario(datosCodificados) {
 
 async function guardarUsuario(evento) {
     evento.preventDefault();
-    if (!tienePermiso('usuarios')) return alert('No tienes permiso para administrar usuarios.');
+    if (!esAdministrador()) return alert('Solo un administrador puede administrar usuarios.');
     const id = document.getElementById('usuario-id').value;
     const nombre = document.getElementById('usuario-nombre').value.trim();
     const usuario = document.getElementById('usuario-usuario').value.trim();
     const contrasena = document.getElementById('usuario-contrasena').value;
     const confirmar = document.getElementById('usuario-confirmar-contrasena').value;
     const permisos = [...document.querySelectorAll('.permiso-usuario:checked')].map(control => control.value);
+    document.querySelectorAll('.permiso-usuario-crud:checked').forEach(control => permisos.push(`${control.dataset.modulo}_${control.dataset.accion}`));
     const boton = evento.submitter || document.querySelector('#form-usuario button[type="submit"]');
 
     if (!nombre || !usuario) return alert('Completa el nombre y el usuario.');
@@ -616,7 +654,7 @@ async function guardarUsuario(evento) {
 }
 
 async function eliminarUsuario(id) {
-    if (!tienePermiso('usuarios')) return alert('No tienes permiso para administrar usuarios.');
+    if (!esAdministrador()) return alert('Solo un administrador puede administrar usuarios.');
     if (String(id) === String(sesionActual?.id)) return alert('No puedes eliminar tu propia sesión.');
     const usuario = dataGlobal.usuarios.find(item => String(item.id) === String(id));
     const nombre = usuario?.nombre || usuario?.usuario || 'seleccionado';
@@ -638,7 +676,7 @@ function renderTablaTasas() {
     if(!tb) return;
     tb.innerHTML = '';
     dataGlobal.tasas.forEach(t => {
-        let btnAcc = `<button class="btn-action btn-edit me-1" onclick="llenarModalEditar('tasas', '${encodeURIComponent(JSON.stringify(t))}')"><i class="fa-solid fa-pen"></i></button><button class="btn-action btn-delete" onclick="eliminarRegistro('tasas', ${t.id})"><i class="fa-solid fa-trash"></i></button>`;
+        let btnAcc = `${tienePermisoAccion('parametros','update') ? `<button class="btn-action btn-edit me-1" onclick="llenarModalEditar('tasas', '${encodeURIComponent(JSON.stringify(t))}')"><i class="fa-solid fa-pen"></i></button>` : ''}${tienePermisoAccion('parametros','delete') ? `<button class="btn-action btn-delete" onclick="eliminarRegistro('tasas', ${t.id})"><i class="fa-solid fa-trash"></i></button>` : ''}`;
         tb.innerHTML += `<tr><td>${t.fecha} <br> <small class="text-muted">${t.hora}</small></td><td class="fw-bold">Bs ${parseFloat(t.dolar_bcv||0).toFixed(2)}</td><td class="fw-bold text-theme-solid">Bs ${parseFloat(t.euro_bcv||0).toFixed(2)}</td><td class="fw-bold text-warning">Bs ${parseFloat(t.binance||0).toFixed(2)}</td><td class="text-muted">Bs ${parseFloat(t.bybit||0).toFixed(2)}</td><td class="text-muted">Bs ${parseFloat(t.dolar_promedio||0).toFixed(2)}</td><td class="text-muted">Bs ${parseFloat(t.zelle||0).toFixed(2)}</td><td class="text-muted">Bs ${parseFloat(t.paypal||0).toFixed(2)}</td><td class="fw-bolder ${(t.brecha||0) > 0 ? 'text-danger':'text-success'}">${((t.brecha||0)*100).toFixed(2)}%</td><td>${btnAcc}</td></tr>`;
     });
 }
@@ -649,7 +687,7 @@ function cargarCoberturas() {
     tb.innerHTML = '';
     dataGlobal.coberturas.forEach(c => {
         const datos = encodeURIComponent(JSON.stringify(c));
-        const acciones = `<button class="btn-action btn-edit me-1" title="Editar cobertura" onclick="llenarModalEditar('coberturas', '${datos}')"><i class="fa-solid fa-pen"></i></button><button class="btn-action btn-delete" title="Eliminar cobertura" onclick="eliminarRegistro('coberturas', ${c.id})"><i class="fa-solid fa-trash"></i></button>`;
+        const acciones = `${tienePermisoAccion('parametros','update') ? `<button class="btn-action btn-edit me-1" title="Editar cobertura" onclick="llenarModalEditar('coberturas', '${datos}')"><i class="fa-solid fa-pen"></i></button>` : ''}${tienePermisoAccion('parametros','delete') ? `<button class="btn-action btn-delete" title="Eliminar cobertura" onclick="eliminarRegistro('coberturas', ${c.id})"><i class="fa-solid fa-trash"></i></button>` : ''}`;
         tb.innerHTML += `<tr><td>${c.fecha_registro}</td><td class="fw-bold">${c.rango_evaluado}</td><td>${c.fecha_pico_maximo}</td><td class="text-danger fw-bolder">${(c.porcentaje_cobertura*100).toFixed(2)}%</td><td class="text-success fw-bold">${c.factor_proteccion}</td><td><span class="badge bg-light text-dark border">${c.registrado_por}</span></td><td><span class="badge ${c.estado==='ACTIVO'?'bg-success':'bg-secondary'}">${c.estado}</span></td><td>${acciones}</td></tr>`;
     });
 }
@@ -825,8 +863,8 @@ function showModule(mId, refrescar = true) {
 }
 
 function abrirModal(m) {
-    const permiso = m === 'tasas' ? 'agregar_tasa' : m;
-    if (!tienePermiso(permiso)) return alert('No tienes permiso para realizar esta operación.');
+    const permiso = m === 'tasas' ? 'parametros' : (m === 'coberturas' ? 'parametros' : m);
+    if (!exigirPermisoAccion(permiso, 'create')) return;
     if (m === 'productos') {
         if (dataGlobal.categorias.length === 0) { if(confirm("¡Falta Categoría!\n¿Crear una ahora?")) abrirModal('categorias'); return; }
         if (dataGlobal.proveedores.length === 0) { if(confirm("¡Falta Proveedor!\n¿Crear uno ahora?")) abrirModal('proveedores'); return; }
@@ -979,78 +1017,11 @@ window.abrirDetalleExistencia = async function(prodId) {
 }
 
 
-window.abrirAjusteExistencia = async function(prodId) {
-    if (sesionActual?.usuario !== 'admin') return alert('Solo el usuario administrador (admin) puede corregir existencias.');
-    if (!exigirPermiso('existencias')) return;
-    const producto = dataGlobal.existencias.find(item => String(item.id) === String(prodId));
-    if (!producto) return alert('No se encontró el producto seleccionado.');
-
-    document.getElementById('ajuste-existencia-producto-id').value = producto.id;
-    document.getElementById('ajuste-existencia-producto').innerText = `${producto.descripcion} (${producto.codigo_barras || 'Sin código'})`;
-    const select = document.getElementById('ajuste-existencia-carga');
-    select.innerHTML = '<option value="" selected disabled>Cargando cargas...</option>';
-    document.getElementById('ajuste-existencia-cantidad').value = '';
-    document.getElementById('ajuste-existencia-costo').value = '';
-    document.getElementById('ajuste-existencia-motivo').value = '';
-    new bootstrap.Modal(document.getElementById('modalAjusteExistencia')).show();
-
-    try {
-        const res = await fetch(`/api/existencias/${prodId}/cargas`);
-        const datos = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(datos.error || 'No se pudieron cargar las cargas.');
-        if (!datos.length) {
-            select.innerHTML = '<option value="" selected disabled>No hay cargas iniciales o compras para corregir</option>';
-            return;
-        }
-        select.innerHTML = '<option value="" selected disabled>Selecciona la carga...</option>' + datos.map(c =>
-            `<option value="${c.id}" data-cantidad="${c.cantidad_actual}" data-costo="${c.costo_actual}" data-almacen="${escapeHTML(c.almacen_destino_nombre || 'Sin almacén')}">${escapeHTML(c.consecutivo)} · ${escapeHTML(c.tipo)} · ${escapeHTML(c.almacen_destino_nombre || 'Sin almacén')} · Cant. ${Number(c.cantidad_actual).toFixed(2)} · Costo $${Number(c.costo_actual).toFixed(2)}</option>`
-        ).join('');
-    } catch (error) {
-        select.innerHTML = '<option value="" selected disabled>Error cargando las cargas</option>';
-        alert(error.message || 'No se pudieron cargar las cargas.');
-    }
-};
-
-window.cargarDatosCargaParaAjuste = function() {
-    const select = document.getElementById('ajuste-existencia-carga');
-    const option = select.options[select.selectedIndex];
-    if (!option || !option.value) return;
-    document.getElementById('ajuste-existencia-cantidad').value = Number(option.dataset.cantidad || 0);
-    document.getElementById('ajuste-existencia-costo').value = Number(option.dataset.costo || 0).toFixed(2);
-};
-
-window.guardarAjusteExistencia = async function(evento) {
-    evento.preventDefault();
-    if (sesionActual?.usuario !== 'admin') return alert('Solo el usuario administrador (admin) puede corregir existencias.');
-    const productoId = document.getElementById('ajuste-existencia-producto-id').value;
-    const cargaId = document.getElementById('ajuste-existencia-carga').value;
-    const cantidad = Number(document.getElementById('ajuste-existencia-cantidad').value);
-    const costo = Number(document.getElementById('ajuste-existencia-costo').value);
-    const motivo = document.getElementById('ajuste-existencia-motivo').value.trim();
-    if (!productoId || !cargaId) return alert('Selecciona una carga.');
-    if (!Number.isFinite(cantidad) || cantidad < 0) return alert('La cantidad corregida no puede ser negativa.');
-    if (!Number.isFinite(costo) || costo < 0) return alert('El costo corregido no puede ser negativo.');
-    if (!motivo) return alert('El motivo administrativo es obligatorio.');
-
-    const boton = evento.submitter;
-    try {
-        if (boton) boton.disabled = true;
-        const res = await fetch(`/api/existencias/${productoId}/ajustar`, {
-            method: 'POST',
-            headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({carga_id: cargaId, cantidad, costo_unitario: costo, motivo})
-        });
-        const resultado = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(resultado.error || 'No se pudo registrar la corrección.');
-        bootstrap.Modal.getInstance(document.getElementById('modalAjusteExistencia')).hide();
-        alert(`Corrección registrada en Kardex.\nMovimiento: ${resultado.consecutivo}`);
-        await cargarDataTotal();
-    } catch (error) {
-        alert(error.message || 'No se pudo registrar la corrección.');
-    } finally {
-        if (boton) boton.disabled = false;
-    }
-};
+function botonesCRUD(m,dataStr,id){
+    const e=tienePermisoAccion(m,'update')?`<button class="btn-action btn-edit me-1" onclick="llenarModalEditar('${m}', '${dataStr}')" title="Editar"><i class="fa-solid fa-pen"></i></button>`:'';
+    const d=tienePermisoAccion(m,'delete')?`<button class="btn-action btn-delete" onclick="eliminarRegistro('${m}', ${id})" title="Eliminar"><i class="fa-solid fa-trash"></i></button>`:'';
+    return e+d;
+}
 
 function renderTabla(m) {
     if(m === 'ventas' || m === 'parametros' || m === 'lista_precios' || m === 'reportes') return;
@@ -1085,9 +1056,6 @@ function renderTabla(m) {
         else if(m === 'existencias') {
             const disp = i.stock_disponible_venta;
             const alerta = disp <= i.stock_minimo ? 'text-danger fw-bolder fs-5' : 'text-success fw-bolder fs-5';
-            const btnAjuste = sesionActual?.usuario === 'admin'
-                ? `<button class="btn btn-sm btn-warning text-dark shadow-sm bounce-hover rounded-circle me-1" onclick="abrirAjusteExistencia(${i.id})" title="Corregir carga / costo"><i class="fa-solid fa-pen"></i></button>`
-                : '';
             html = `<tr>
                 <td class="text-muted">${i.codigo_barras||'-'}</td>
                 <td class="fw-bold text-theme-solid text-start ps-3">${i.descripcion}</td>
@@ -1098,7 +1066,7 @@ function renderTabla(m) {
                 <td class="text-danger fw-bolder">${i.stock_devoluciones}</td>
                 <td class="fw-bold">${formatMoney(i.costo_unit)}</td>
                 <td class="fw-bold text-theme-solid">${formatMoney(i.total_costo)}</td>
-                <td class="text-nowrap">${btnAjuste}<button class="btn btn-sm btn-info text-white shadow-sm bounce-hover rounded-circle" onclick="abrirDetalleExistencia(${i.id})" title="Ver detalles y almacenes"><i class="fa-solid fa-eye"></i></button></td>
+                <td class="text-nowrap"><button class="btn btn-sm btn-info text-white shadow-sm bounce-hover rounded-circle me-1" onclick="abrirDetalleExistencia(${i.id})" title="Ver detalle"><i class="fa-solid fa-eye"></i></button>${esSuperAdmin() ? `<button class="btn btn-sm btn-warning rounded-circle shadow-sm" onclick="abrirEditorCargaDesdeExistencia(${i.id})" title="Corregir carga"><i class="fa-solid fa-pen"></i></button>` : ''}</td>
             </tr>`;
         }
         else if(m === 'kardex') {
@@ -1107,8 +1075,6 @@ function renderTabla(m) {
             else if(['Venta', 'Descarga por daño/motivo', 'Devolución por compra'].includes(i.tipo)) tipoBadge = 'bg-danger';
             else if(i.tipo === 'Traspaso') tipoBadge = 'bg-primary';
             else if(i.tipo === 'Devolución por venta') tipoBadge = 'bg-info text-dark';
-            else if(i.tipo === 'Reversión administrativa') tipoBadge = 'bg-warning text-dark';
-            else if(i.tipo === 'Ajuste administrativo') tipoBadge = 'bg-warning text-dark';
                          
             let txtDetalle = "";
             if (i.documento) txtDetalle += `<b>Doc/Factura:</b> ${i.documento}<br><br>`;
@@ -1118,11 +1084,10 @@ function renderTabla(m) {
             if (txtDetalle === "") txtDetalle = "Sin detalles adicionales.";
                          
             let htmlDetalle = `<button class="btn btn-sm btn-theme rounded-pill px-3 py-1 fw-bold fs-7 shadow-sm bounce-hover" onclick="mostrarInfoModal('Detalles de Operación', '${txtDetalle.replace(/'/g, "\\'")}')">Ver más</button>`;
-            const tiposAnulables = ['Inventario Inicial', 'Compra', 'Descarga por daño/motivo', 'Traspaso', 'Devolución por compra'];
-            const btnAnular = sesionActual?.usuario === 'admin' && tiposAnulables.includes(i.tipo)
-                ? `<button class="btn-action btn-delete ms-1" onclick="anularMovimientoKardex(${i.id})" title="Anular movimiento"><i class="fa-solid fa-rotate-left"></i></button>`
-                : '';
-            html = `<tr><td class="fw-bold">${i.consecutivo}</td><td class="small text-muted fw-bold">${i.fecha_registro}</td><td><span class="badge ${tipoBadge}">${i.tipo}</span></td><td class="fw-bold text-theme-solid text-truncate" style="max-width:150px;">${i.producto_nombre}</td><td class="fw-bolder fs-6">${i.cantidad}</td><td class="fw-bold">${formatMoney(i.costo_unitario)}</td><td><span class="badge bg-light text-dark border">${i.registrado_por}</span></td><td>${htmlDetalle}</td><td>${btnAnular}</td></tr>`;
+            const estadoMov=i.anulado?'<span class="badge bg-secondary ms-1">ANULADO</span>':'';
+            let accionesK='';
+            if(esSuperAdmin()&&!i.anulado){ if(['Inventario Inicial','Compra'].includes(i.tipo)) accionesK+=`<button class="btn-action btn-edit me-1" onclick="abrirEditorCargaKardex(${i.id})" title="Editar carga y generar ajuste administrativo"><i class="fa-solid fa-pen"></i></button>`; accionesK+=`<button class="btn-action btn-delete" onclick="anularMovimientoKardex(${i.id})" title="Anular / revertir movimiento"><i class="fa-solid fa-rotate-left"></i></button>`;}
+            html = `<tr><td class="fw-bold">${i.consecutivo}${estadoMov}</td><td class="small text-muted fw-bold">${i.fecha_registro}</td><td><span class="badge ${tipoBadge}">${i.tipo}</span></td><td class="fw-bold text-theme-solid text-truncate" style="max-width:150px;">${i.producto_nombre}</td><td class="fw-bolder fs-6">${i.cantidad}</td><td class="fw-bold">${formatMoney(i.costo_unitario)}</td><td><span class="badge bg-light text-dark border">${i.registrado_por}</span></td><td>${htmlDetalle}</td><td>${accionesK}</td></tr>`;
         }
         else if(m === 'historial_ventas') {
             let bC = i.estado.includes('DEVUELTO') ? 'bg-danger' : 'bg-success';
@@ -1161,7 +1126,8 @@ function llenarSelectores() {
 }
 
 function llenarModalEditar(m, encodedStr) {
-    if (!exigirPermiso(['tasas', 'coberturas'].includes(m) ? 'parametros' : m)) return;
+    const moduloPermiso = ['tasas','coberturas'].includes(m) ? 'parametros' : m;
+    if (!exigirPermisoAccion(moduloPermiso,'update')) return;
     const d = JSON.parse(decodeURIComponent(encodedStr));
     document.getElementById(`id-${m}`).value = d.id;
     document.getElementById(`titulo-modal-${m}`).innerText = 'Editar Registro';
@@ -1208,8 +1174,9 @@ function llenarModalEditar(m, encodedStr) {
 async function guardarFormulario(e, m) {
     e.preventDefault();
     const id = document.getElementById(`id-${m}`).value;
-    const permiso = m === 'tasas' ? (id ? 'parametros' : 'agregar_tasa') : (m === 'coberturas' ? 'parametros' : m);
-    if (!exigirPermiso(permiso)) return;
+    const moduloPermiso = m === 'tasas' || m === 'coberturas' ? 'parametros' : m;
+    const permitido = (m === 'tasas' && !id) ? (tienePermiso('agregar_tasa') || tienePermisoAccion('parametros','create')) : tienePermisoAccion(moduloPermiso, id ? 'update' : 'create');
+    if (!permitido) return alert('No tienes permiso para realizar esta operación.');
     let payload = {};
          
     if(m === 'clientes') payload = { documento: document.getElementById('c_doc').value, nombre: document.getElementById('c_nom').value, telefono: document.getElementById('c_cod').value + document.getElementById('c_tel').value, correo: document.getElementById('c_cor').value, pais: document.getElementById('c_pais').value, estado: document.getElementById('c_est').value, municipio: document.getElementById('c_mun').value, direccion_entrega: document.getElementById('c_dir_ent').value, punto_referencia: document.getElementById('c_ref').value, coordenadas: document.getElementById('c_coo').value, tipo_envio: document.getElementById('c_tipo_env').value };
@@ -1233,15 +1200,14 @@ async function guardarFormulario(e, m) {
     }
          
     let res = await fetch(id ? `/api/${m}/${id}` : `/api/${m}`, { method: id ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
-    const resultado = await res.json().catch(() => ({}));
-    if(!res.ok) { alert(resultado.error || "Hubo un error al guardar. Revisa que llenaste todos los campos."); return; }
+    if(!res.ok) { alert("Hubo un error al guardar. Revisa que llenaste todos los campos."); return; }
     bootstrap.Modal.getInstance(document.getElementById(`modal-${m}`)).hide();
-    await cargarDataTotal();
+    cargarDataTotal();
 }
 
 function eliminarRegistro(m, id) {
-    const permiso = ['tasas', 'coberturas'].includes(m) ? 'parametros' : (m === 'ventas' ? 'historial_ventas' : m);
-    if (!exigirPermiso(permiso)) return;
+    const moduloPermiso = ['tasas', 'coberturas'].includes(m) ? 'parametros' : (m === 'ventas' ? 'historial_ventas' : m);
+    if (!exigirPermisoAccion(moduloPermiso, 'delete')) return;
     if (m === 'tasas') {
         idTasaPendienteBorrar = id;
         new bootstrap.Modal(document.getElementById('modalConfirmarBorrarTasa')).show();
@@ -1262,32 +1228,14 @@ async function procesarEliminacionTasa() {
 
 async function ejecutarBorrado(m, id) {
     let res = await fetch(`/api/${m}/${id}`, { method: 'DELETE' });
-    const resultado = await res.json().catch(() => ({}));
     if(res.ok) { 
          if(m!=='tasas') alert("Eliminado exitosamente."); 
-         await cargarDataTotal(); 
+         cargarDataTotal(); 
     }
-    else { alert(resultado.error || "Hubo un error al eliminar. Verifica las dependencias del registro."); }
+    else { alert("Hubo un error al eliminar. Verifica si hay dependencias de base de datos."); }
 }
 
-window.anularMovimientoKardex = async function(id) {
-    if (sesionActual?.usuario !== 'admin') return alert('Solo el usuario administrador (admin) puede anular movimientos.');
-    const movimiento = dataGlobal.kardex.find(item => String(item.id) === String(id));
-    if (!movimiento) return alert('No se encontró el movimiento seleccionado.');
-    if (!confirm(`¿Anular ${movimiento.consecutivo} (${movimiento.tipo})?\n\nNo se borrará el registro original. Se creará una reversión administrativa y el stock se recalculará automáticamente.`)) return;
-    try {
-        const res = await fetch(`/api/kardex/${id}/anular`, { method: 'POST', headers: {'Content-Type':'application/json'} });
-        const resultado = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(resultado.error || 'No se pudo anular el movimiento.');
-        alert(`Movimiento anulado correctamente.\nReversión: ${resultado.consecutivo}`);
-        await cargarDataTotal();
-    } catch (error) {
-        alert(error.message || 'No se pudo anular el movimiento.');
-    }
-};
-
 function abrirModalMovimiento() {
-    if (sesionActual?.usuario !== 'admin') return alert('Solo el usuario administrador (admin) puede registrar movimientos especiales de inventario.');
     if (!exigirPermiso('movimientos')) return;
     const form = document.getElementById('form-movimiento');
     if(form) form.reset();
@@ -1331,8 +1279,7 @@ async function actualizarCamposMovimiento() {
 
 async function guardarMovimiento(e) {
     e.preventDefault();
-    if (sesionActual?.usuario !== 'admin') return alert('Solo el usuario administrador (admin) puede registrar movimientos especiales de inventario.');
-    if (!exigirPermiso('movimientos')) return;
+    if (!esSuperAdmin()) return alert('Solo la cuenta raíz admin puede registrar movimientos manuales de inventario.');
     const t = document.getElementById('mov_tipo').value;
     let p = { producto_id: document.getElementById('mov_prod').value, tipo: t, cantidad: document.getElementById('mov_cant').value };
          
@@ -1357,6 +1304,29 @@ async function guardarMovimiento(e) {
     if(!res.ok) { alert("Error al registrar movimiento."); return; }
     if(t === 'Inventario Inicial') { alert("Guardado."); document.getElementById('mov_doc').value = ''; document.getElementById('mov_cant').value = ''; cargarDataTotal(); }
     else { bootstrap.Modal.getInstance(document.getElementById('modalMovimiento')).hide(); cargarDataTotal(); }
+}
+
+function abrirEditorCargaKardex(id){
+    if(!esSuperAdmin()) return alert('Solo admin puede corregir cargas.');
+    const mov=dataGlobal.kardex.find(x=>Number(x.id)===Number(id)); if(!mov) return alert('Movimiento no encontrado.');
+    const ajustes=dataGlobal.kardex.filter(x=>Number(x.movimiento_origen_id)===Number(mov.id)&&x.tipo==='Ajuste administrativo'&&!x.anulado);
+    let cantidadActual=Number(mov.cantidad||0), costoActual=Number(mov.costo_unitario||0);
+    ajustes.forEach(a=>{ if(a.tipo_ajuste==='CORRECCION_ENTRADA') cantidadActual+=Number(a.cantidad||0); else if(a.tipo_ajuste==='CORRECCION_SALIDA') cantidadActual-=Number(a.cantidad||0); costoActual=Number(a.costo_unitario||costoActual); });
+    const cantidad=prompt(`Nueva cantidad efectiva para ${mov.consecutivo}:`,cantidadActual); if(cantidad===null) return;
+    const costo=prompt(`Nuevo costo unitario efectivo para ${mov.consecutivo}:`,costoActual); if(costo===null) return;
+    const nCant=Number(cantidad), nCosto=Number(costo); if(!Number.isFinite(nCant)||nCant<=0||!Number.isFinite(nCosto)||nCosto<0) return alert('Valores inválidos.');
+    fetch(`/api/movimientos/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({cantidad:nCant,costo_unitario:nCosto})}).then(async r=>{const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||'No se pudo corregir.'); alert('Corrección aplicada y registrada como Ajuste administrativo.'); cargarDataTotal();}).catch(e=>alert(e.message));
+}
+function abrirEditorCargaDesdeExistencia(productoId){
+    if(!esSuperAdmin()) return;
+    const cargas=dataGlobal.kardex.filter(x=>Number(x.producto_id)===Number(productoId)&&['Inventario Inicial','Compra'].includes(x.tipo)&&!x.anulado);
+    if(!cargas.length) return alert('No hay cargas editables para este producto.');
+    const html='<p class="small text-muted">Selecciona la carga exacta que deseas corregir. El movimiento original se conserva.</p>'+cargas.map(x=>`<button class="btn btn-light border rounded-pill w-100 text-start mb-2" onclick="bootstrap.Modal.getInstance(document.getElementById('modalVerMas')).hide(); abrirEditorCargaKardex(${x.id})"><strong>${escapeHTML(x.consecutivo)}</strong> · ${escapeHTML(x.tipo)} · ${Number(x.cantidad||0)} · ${formatMoney(x.costo_unitario)}</button>`).join('');
+    mostrarInfoModal('Seleccionar carga para corregir',html);
+}
+async function anularMovimientoKardex(id){
+    if(!esSuperAdmin()) return alert('Solo admin puede anular movimientos.'); if(!confirm('¿Anular este movimiento? Quedará visible como ANULADO y el stock se recalculará.')) return;
+    const r=await fetch(`/api/movimientos/${id}/anular`,{method:'POST'}), d=await r.json().catch(()=>({})); if(!r.ok) return alert(d.error||'No se pudo anular.'); cargarDataTotal();
 }
 
 function agregarAlCarrito() {
@@ -1504,7 +1474,7 @@ async function procesarVenta() {
 
 // ---------------- DEVOLUCIONES Y NOTAS DE CRÉDITO ---------------- //
 function abrirModalDevoluciones() {
-    if (!exigirPermiso('historial_ventas')) return;
+    if (!exigirPermisoAccion('historial_ventas','create')) return;
     document.getElementById('dev_buscar_factura').value = '';
     document.getElementById('dev_contenido_nota').classList.add('d-none');
     itemsDevolucionTemporal = [];
