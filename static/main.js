@@ -976,6 +976,88 @@ window.abrirDetalleExistencia = async function(prodId) {
 }
 
 
+window.abrirAjusteExistencia = async function(prodId) {
+    if (sesionActual?.usuario !== 'admin') {
+        alert('Solo el administrador puede ajustar cargas o costos de existencias.');
+        return;
+    }
+    const producto = dataGlobal.existencias.find(e => e.id === prodId);
+    if (!producto) return;
+
+    document.getElementById('ajuste-existencia-producto-id').value = prodId;
+    document.getElementById('ajuste-existencia-producto').innerText = producto.descripcion || 'Producto';
+    document.getElementById('ajuste-existencia-codigo').innerText = `CÓDIGO: ${producto.codigo_barras || 'N/A'}`;
+    document.getElementById('ajuste-existencia-cargas').innerHTML = '<option value="">Cargando cargas...</option>';
+    document.getElementById('ajuste-existencia-cantidad').value = '';
+    document.getElementById('ajuste-existencia-costo').value = '';
+    document.getElementById('ajuste-existencia-motivo').value = '';
+    document.getElementById('ajuste-existencia-resumen').innerHTML = '';
+
+    new bootstrap.Modal(document.getElementById('modalAjusteExistencia')).show();
+    try {
+        const respuesta = await fetch(`/api/existencias/${prodId}/cargas`);
+        if (respuesta.redirected || !respuesta.ok) throw new Error('No se pudieron cargar las cargas existentes.');
+        const cargas = await respuesta.json();
+        const select = document.getElementById('ajuste-existencia-cargas');
+        if (!Array.isArray(cargas) || !cargas.length) {
+            select.innerHTML = '<option value="">No hay cargas de Inventario Inicial o Compra para ajustar</option>';
+            return;
+        }
+        select.innerHTML = '<option value="" disabled selected>Selecciona la carga a corregir...</option>' + cargas.map(c =>
+            `<option value="${Number(c.id)}" data-cantidad="${Number(c.cantidad || 0)}" data-costo="${Number(c.costo_unitario || 0)}">${escapeHTML(c.consecutivo || `Carga #${c.id}`)} · ${escapeHTML(c.tipo)} · ${Number(c.cantidad || 0)} unid. · $${Number(c.costo_unitario || 0).toFixed(2)} · ${escapeHTML(c.almacen_destino_nombre || 'Sin almacén')}</option>`
+        ).join('');
+    } catch (error) {
+        document.getElementById('ajuste-existencia-cargas').innerHTML = '<option value="">Error al cargar las cargas</option>';
+        alert(error.message || 'No se pudieron cargar las cargas existentes.');
+    }
+};
+
+window.cargarDatosCargaParaAjuste = function() {
+    const select = document.getElementById('ajuste-existencia-cargas');
+    const option = select?.selectedOptions?.[0];
+    if (!option || !option.value) return;
+    document.getElementById('ajuste-existencia-cantidad').value = option.dataset.cantidad || '0';
+    document.getElementById('ajuste-existencia-costo').value = option.dataset.costo || '0';
+    document.getElementById('ajuste-existencia-resumen').innerHTML = '<span class="text-muted small">Los valores mostrados son los actuales. El sistema registrará únicamente la diferencia como ajuste administrativo.</span>';
+};
+
+window.guardarAjusteExistencia = async function(evento) {
+    evento.preventDefault();
+    if (sesionActual?.usuario !== 'admin') {
+        alert('Solo el administrador puede ajustar cargas o costos de existencias.');
+        return;
+    }
+    const productoId = Number(document.getElementById('ajuste-existencia-producto-id').value);
+    const cargaId = Number(document.getElementById('ajuste-existencia-cargas').value);
+    const cantidad = Number(document.getElementById('ajuste-existencia-cantidad').value);
+    const costo = Number(document.getElementById('ajuste-existencia-costo').value);
+    const motivo = document.getElementById('ajuste-existencia-motivo').value.trim();
+    const boton = evento.submitter;
+
+    if (!productoId || !cargaId) return alert('Selecciona una carga existente.');
+    if (!Number.isFinite(cantidad) || cantidad < 0) return alert('La cantidad debe ser un número mayor o igual a cero.');
+    if (!Number.isFinite(costo) || costo < 0) return alert('El costo debe ser un número mayor o igual a cero.');
+    if (!motivo) return alert('Indica el motivo del ajuste administrativo.');
+
+    try {
+        boton.disabled = true;
+        const respuesta = await fetch(`/api/existencias/${productoId}/ajustar`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({carga_id: cargaId, cantidad, costo_unitario: costo, motivo})
+        });
+        if (respuesta.redirected) throw new Error('La sesión administrativa ya no es válida.');
+        const resultado = await respuesta.json().catch(() => ({}));
+        if (!respuesta.ok) throw new Error(resultado.error || 'No se pudo registrar el ajuste administrativo.');
+        bootstrap.Modal.getInstance(document.getElementById('modalAjusteExistencia')).hide();
+        alert(`Ajuste administrativo registrado correctamente (${resultado.consecutivo}).`);
+        await cargarDataTotal();
+    } catch (error) {
+        alert(error.message || 'No se pudo registrar el ajuste.');
+    } finally {
+        boton.disabled = false;
+    }
+};
+
 function renderTabla(m) {
     if(m === 'ventas' || m === 'parametros' || m === 'lista_precios' || m === 'reportes') return;
          
@@ -1009,6 +1091,11 @@ function renderTabla(m) {
         else if(m === 'existencias') {
             const disp = i.stock_disponible_venta;
             const alerta = disp <= i.stock_minimo ? 'text-danger fw-bolder fs-5' : 'text-success fw-bolder fs-5';
+            // El ojo se mantiene visible para cualquier usuario con acceso al módulo.
+            // La edición de cargas/costos se limita estrictamente al usuario 'admin'.
+            const btnEditarExistencia = sesionActual?.usuario === 'admin'
+                ? `<button class="btn btn-sm btn-edit btn-action me-1 shadow-sm bounce-hover" onclick="abrirAjusteExistencia(${i.id})" title="Editar / Ajustar carga o costo"><i class="fa-solid fa-pen"></i></button>`
+                : '';
             html = `<tr>
                 <td class="text-muted">${i.codigo_barras||'-'}</td>
                 <td class="fw-bold text-theme-solid text-start ps-3">${i.descripcion}</td>
@@ -1019,7 +1106,7 @@ function renderTabla(m) {
                 <td class="text-danger fw-bolder">${i.stock_devoluciones}</td>
                 <td class="fw-bold">${formatMoney(i.costo_unit)}</td>
                 <td class="fw-bold text-theme-solid">${formatMoney(i.total_costo)}</td>
-                <td><button class="btn btn-sm btn-info text-white shadow-sm bounce-hover rounded-circle" onclick="abrirDetalleExistencia(${i.id})"><i class="fa-solid fa-eye"></i></button></td>
+                <td>${btnEditarExistencia}<button class="btn btn-sm btn-info text-white shadow-sm bounce-hover rounded-circle" onclick="abrirDetalleExistencia(${i.id})" title="Ver detalle"><i class="fa-solid fa-eye"></i></button></td>
             </tr>`;
         }
         else if(m === 'kardex') {
@@ -1028,6 +1115,7 @@ function renderTabla(m) {
             else if(['Venta', 'Descarga por daño/motivo', 'Devolución por compra'].includes(i.tipo)) tipoBadge = 'bg-danger';
             else if(i.tipo === 'Traspaso') tipoBadge = 'bg-primary';
             else if(i.tipo === 'Devolución por venta') tipoBadge = 'bg-info text-dark';
+            else if(i.tipo === 'Ajuste administrativo') tipoBadge = 'bg-warning text-dark';
                          
             let txtDetalle = "";
             if (i.documento) txtDetalle += `<b>Doc/Factura:</b> ${i.documento}<br><br>`;
