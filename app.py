@@ -236,11 +236,16 @@ def api_login():
                 session['nombre'] = row['nombre']
                 session['usuario'] = row['usuario']
                 session['es_admin'] = bool(row['es_admin']) or row['usuario'] == 'admin'
+                session['activo'] = True if row['usuario'] == 'admin' else bool(row['activo'])
                 session['permisos'] = permisos_list
                 
                 return jsonify({
-                    'id': row['id'], 'nombre': row['nombre'], 'usuario': row['usuario'],
-                    'es_admin': row['es_admin'], 'permisos': permisos_list
+                    'id': row['id'],
+                    'nombre': row['nombre'],
+                    'usuario': row['usuario'],
+                    'activo': True if row['usuario'] == 'admin' else bool(row['activo']),
+                    'es_admin': True if row['usuario'] == 'admin' else bool(row['es_admin']),
+                    'permisos': permisos_list
                 })
             return jsonify({'error': 'Usuario o contraseña inválidos.'}), 401
         finally:
@@ -256,6 +261,7 @@ def api_sesion():
             'id': session['usuario_id'],
             'nombre': session['nombre'],
             'usuario': session['usuario'],
+            'activo': session.get('activo', True),
             'es_admin': session['es_admin'],
             'permisos': session.get('permisos', [])
         })
@@ -278,8 +284,8 @@ def index():
 
 @app.route('/api/resumen', methods=['GET'])
 def api_resumen():
-    guard=exigir_crud('panel','read')
-    if guard: return guard
+    if not session.get('usuario_id'):
+        return jsonify({'error': 'Sesión requerida.'}), 401
     conn = get_db_connection()
     try:
         c = conn.execute('SELECT COUNT(*) FROM clientes').fetchone()[0]
@@ -382,7 +388,7 @@ def editar_movimiento_admin(id):
         ajuste='CORRECCION_ENTRADA' if delta>=0 else 'CORRECCION_SALIDA'
         consecutivo=f"MOV-ADM-{id}-{int(datetime.datetime.now().timestamp())}"
         motivo=f"Corrección administrativa de {original['consecutivo']}. Cantidad efectiva: {cantidad_actual:g} -> {nueva_cantidad:g}. Costo efectivo: {costo_actual:.6f} -> {nuevo_costo:.6f}."
-        conn.execute('INSERT INTO movimientos (consecutivo,fecha_registro,tipo,producto_id,cantidad,costo_unitario,almacen_origen_id,almacen_destino_id,motivo,documento,registrado_por,movimiento_origen_id,tipo_ajuste,anulado) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,FALSE)',(consecutivo,fecha,'Ajuste administrativo',original['producto_id'],abs(delta),nuevo_costo,original['almacen_destino_id'] if delta<0 else None,original['almacen_destino_id'] if delta>=0 else None,motivo,original['documento'] or '',session.get('nombre','admin'),id,'CORRECCION'))
+        conn.execute('INSERT INTO movimientos (consecutivo,fecha_registro,tipo,producto_id,cantidad,costo_unitario,almacen_origen_id,almacen_destino_id,motivo,documento,registrado_por,movimiento_origen_id,tipo_ajuste,anulado) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,FALSE)',(consecutivo,fecha,'Ajuste administrativo',original['producto_id'],abs(delta),nuevo_costo,original['almacen_destino_id'] if delta<0 else None,original['almacen_destino_id'] if delta>=0 else None,motivo,original['documento'] or '',session.get('nombre','admin'),id,ajuste))
         # El costo vigente del registro original se actualiza solo cuando la cantidad no cambia.
         # Si cambia la cantidad, el ajuste queda con el nuevo costo y la valoración vigente se toma del último ajuste.
         registrar_auditoria(conn,'CORREGIR','movimientos',id,motivo); conn.commit(); return jsonify({'status':'ok','consecutivo':consecutivo})

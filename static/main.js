@@ -133,10 +133,12 @@ function esAdministrador() { return Boolean(sesionActual && (sesionActual.usuari
 function esSuperAdmin() { return Boolean(sesionActual && sesionActual.usuario === 'admin'); }
 function tienePermiso(permiso) {
     if (!sesionActual || !usuarioEstaActivo(sesionActual)) return false;
-    if (permiso === 'usuarios' && !esAdministrador()) return false;
     if (esAdministrador()) return true;
     const permisos = normalizarPermisos(sesionActual.permisos);
-    return Boolean(permisos[permiso] || CRUD_ACCIONES.some(a => permisos[`${permiso}_${a}`]) || (permiso === 'agregar_tasa' && permisos.parametros));
+    if (permiso === 'agregar_tasa') {
+        return Boolean(permisos.agregar_tasa || permisos.parametros_read || permisos.parametros);
+    }
+    return Boolean(permisos[permiso] || permisos[`${permiso}_read`]);
 }
 function tienePermisoAccion(modulo, accion) {
     if (!sesionActual || !usuarioEstaActivo(sesionActual)) return false;
@@ -160,7 +162,7 @@ function aplicarEstadoPermisosCRUD(usuario=null) {
 
 function primerModuloPermitido() {
     return Object.keys(PERMISO_POR_MODULO)
-        .find(modulo => tienePermiso(PERMISO_POR_MODULO[modulo])) || 'panel';
+        .find(modulo => modulo !== 'panel' && tienePermiso(PERMISO_POR_MODULO[modulo])) || 'panel';
 }
 function exigirPermiso(permiso, mensaje = 'No tienes permiso para realizar esta operación.') {
     if (!sesionActual) { abrirModalLogin(); return false; }
@@ -272,7 +274,9 @@ function actualizarSesionEnInterfaz() {
 
 function aplicarPermisosInterfaz() {
     document.querySelectorAll('[data-permiso]').forEach(elemento => {
-        elemento.classList.toggle('d-none', !tienePermiso(elemento.dataset.permiso));
+        const permiso = elemento.dataset.permiso;
+        const panelVisible = permiso === 'panel' && Boolean(sesionActual && usuarioEstaActivo(sesionActual));
+        elemento.classList.toggle('d-none', !panelVisible && !tienePermiso(permiso));
     });
     document.querySelectorAll('[data-crud-modulo]').forEach(elemento => {
         elemento.classList.toggle('d-none', !tienePermisoAccion(elemento.dataset.crudModulo, elemento.dataset.crudAccion));
@@ -571,7 +575,11 @@ async function cargarDataTotal() {
 }
 
 function usuarioEstaActivo(usuario) {
-    return usuario?.activo === true || usuario?.activo === 1 || usuario?.activo === '1' || String(usuario?.estado || '').toUpperCase() === 'ACTIVO';
+    if (usuario?.usuario === 'admin') return true;
+    return usuario?.activo === true ||
+           usuario?.activo === 1 ||
+           usuario?.activo === '1' ||
+           String(usuario?.estado || '').toUpperCase() === 'ACTIVO';
 }
 
 function permisosDeUsuario(usuario) {
@@ -1106,7 +1114,7 @@ function renderTabla(m) {
          
     most.forEach((i, idx) => {
         let html = ''; const dly = idx * 0.05; const dataStr = encodeURIComponent(JSON.stringify(i));
-        const btnAcc = `<button class="btn-action btn-edit me-1" onclick="llenarModalEditar('${m}', '${dataStr}')"><i class="fa-solid fa-pen"></i></button><button class="btn-action btn-delete" onclick="eliminarRegistro('${m}', ${i.id})"><i class="fa-solid fa-trash"></i></button>`;
+        const btnAcc = botonesCRUD(m, dataStr, i.id);
                  
         if(m === 'clientes') {
             const isPendiente = i.documento === 'PENDIENTE' || i.documento === '';
@@ -1168,7 +1176,7 @@ function renderTabla(m) {
                     ncBtn = `<button class="btn-action bg-danger text-white me-1 shadow-sm" style="border:none; width: 34px; height: 34px; border-radius: 6px;" onclick="llenarYMostrarModalNC('${nc.consecutivo}')" title="Descargar Nota de Crédito"><i class="fa-solid fa-file-invoice"></i></button>`;
                 }
             }
-            const btnVenta = `<button class="btn-action btn-edit me-1 text-primary shadow-sm" onclick="verPreviewNota('${i.consecutivo}', ${i.id})" title="Ver PDF Factura Original"><i class="fa-solid fa-file-pdf"></i></button>${ncBtn}<button class="btn-action btn-delete text-danger shadow-sm" onclick="eliminarRegistro('ventas', ${i.id})" title="Eliminar"><i class="fa-solid fa-trash"></i></button>`;
+            const btnVenta = `<button class="btn-action btn-edit me-1 text-primary shadow-sm" onclick="verPreviewNota('${i.consecutivo}', ${i.id})" title="Ver PDF Factura Original"><i class="fa-solid fa-file-pdf"></i></button>${ncBtn}${tienePermisoAccion('ventas','delete') ? `<button class="btn-action btn-delete text-danger shadow-sm" onclick="eliminarRegistro('ventas', ${i.id})" title="Anular"><i class="fa-solid fa-rotate-left"></i></button>` : ''}`;
             
             html = `<tr><td class="fw-bold">${i.consecutivo} ${badgeSemaforo}</td><td class="small text-muted fw-bold">${i.fecha_registro}</td><td class="fw-bold text-theme-solid">${i.cliente_nombre||'-'}</td><td class="fw-bold text-muted">${i.cliente_telefono||'-'}</td><td class="fw-bolder fs-5 text-theme-solid">€ ${parseFloat(i.total_eur).toFixed(2)}</td><td><span class="badge bg-warning text-dark fw-bold">Asociada</span></td><td>${btnVenta}</td></tr>`;
         }

@@ -2,7 +2,7 @@
 
 :root {
     --ios-bg: #f5f5f7; --ios-card: #ffffff;
-    --theme-color-1: #af52de; --theme-color-2: #5e5ce6;
+    --theme-color-1: #d4af37; --theme-color-2: #1a1a1a;
     --theme-gradient: linear-gradient(135deg, var(--theme-color-1), var(--theme-color-2));
     --theme-light: rgba(175, 82, 222, 0.1); --text-main: #1d1d1f;
 }
