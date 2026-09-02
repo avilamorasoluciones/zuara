@@ -98,7 +98,7 @@ def init_db():
         
         # --- TABLA DE USUARIOS ---
         conn.execute('''CREATE TABLE IF NOT EXISTS usuarios (id SERIAL PRIMARY KEY, nombre TEXT, usuario TEXT UNIQUE, contrasena TEXT, activo BOOLEAN DEFAULT TRUE, es_admin BOOLEAN DEFAULT FALSE, permisos TEXT, protegido BOOLEAN DEFAULT FALSE, fecha_registro TEXT)''')
-        conn.execute('''CREATE TABLE IF NOT EXISTS auditoria (id SERIAL PRIMARY KEY, fecha_registro TEXT, usuario TEXT, accion TEXT, modulo TEXT, registro_id INTEGER, detalle TEXT)''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS auditoria_log (id SERIAL PRIMARY KEY, fecha_registro TEXT, usuario TEXT, accion TEXT, modulo TEXT, registro_id INTEGER, detalle TEXT)''')
         
         conn.commit()
 
@@ -199,7 +199,7 @@ def respuesta_sin_permiso():
 
 def registrar_auditoria(conn, accion, modulo, registro_id=None, detalle=''):
     try:
-        conn.execute('INSERT INTO auditoria (fecha_registro, usuario, accion, modulo, registro_id, detalle) VALUES (?,?,?,?,?,?)', (datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), session.get('usuario', session.get('nombre', 'Sistema')), accion, modulo, registro_id, detalle))
+        conn.execute('INSERT INTO auditoria_log (fecha_registro, usuario, accion, modulo, registro_id, detalle) VALUES (?,?,?,?,?,?)', (datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), session.get('usuario', session.get('nombre', 'Sistema')), accion, modulo, registro_id, detalle))
     except Exception:
         pass
 
@@ -780,7 +780,7 @@ def api_auditoria():
     if not session.get('es_admin'): return respuesta_sin_permiso()
     conn=get_db_connection()
     try:
-        rows=conn.execute('SELECT * FROM auditoria ORDER BY id DESC LIMIT 1000').fetchall()
+        rows=conn.execute('SELECT * FROM auditoria_log ORDER BY id DESC LIMIT 1000').fetchall()
         return jsonify([dict(r) for r in rows])
     finally: conn.close()
 
