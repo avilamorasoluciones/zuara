@@ -98,7 +98,6 @@ def init_db():
         
         # --- TABLA DE USUARIOS ---
         conn.execute('''CREATE TABLE IF NOT EXISTS usuarios (id SERIAL PRIMARY KEY, nombre TEXT, usuario TEXT UNIQUE, contrasena TEXT, activo BOOLEAN DEFAULT TRUE, es_admin BOOLEAN DEFAULT FALSE, permisos TEXT, protegido BOOLEAN DEFAULT FALSE, fecha_registro TEXT)''')
-        conn.execute('''CREATE TABLE IF NOT EXISTS auditoria_log (id SERIAL PRIMARY KEY, fecha_registro TEXT, usuario TEXT, accion TEXT, modulo TEXT, registro_id INTEGER, detalle TEXT)''')
         
         conn.commit()
 
@@ -108,9 +107,6 @@ def init_db():
         safe_alter(conn, "ALTER TABLE ventas ADD COLUMN total_bs REAL DEFAULT 0")
         safe_alter(conn, "ALTER TABLE notas_credito ADD COLUMN saldo_usado_eur REAL DEFAULT 0")
         safe_alter(conn, "ALTER TABLE notas_credito ADD COLUMN estado TEXT DEFAULT 'DISPONIBLE'")
-        safe_alter(conn, "ALTER TABLE movimientos ADD COLUMN movimiento_origen_id INTEGER")
-        safe_alter(conn, "ALTER TABLE movimientos ADD COLUMN tipo_ajuste TEXT DEFAULT ''")
-        safe_alter(conn, "ALTER TABLE movimientos ADD COLUMN anulado BOOLEAN DEFAULT FALSE")
 
         # Mantiene la columna histórica alineada con la fórmula oficial de brecha.
         conn.execute('''UPDATE historico_tasas
@@ -140,8 +136,6 @@ def init_db():
             hashed = generate_password_hash('admin')
             conn.execute("INSERT INTO usuarios (nombre, usuario, contrasena, activo, es_admin, permisos, protegido, fecha_registro) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
                          ('Administrador Principal', 'admin', hashed, True, True, '[]', True))
-        else:
-            conn.execute("UPDATE usuarios SET es_admin=TRUE, activo=TRUE, protegido=TRUE WHERE usuario='admin'")
 
         conn.commit()
     finally:
@@ -158,50 +152,22 @@ def safe_int(val):
     try: return int(val) if val else 0
     except: return 0
 
-MODULOS_CRUD = ['clientes', 'proveedores', 'almacenes', 'categorias', 'productos', 'ventas', 'historial_ventas', 'existencias', 'movimientos', 'kardex', 'parametros', 'lista_precios', 'reportes', 'configuracion', 'usuarios']
-
-def es_super_admin_sesion():
-    return bool(session.get('usuario') == 'admin' and session.get('es_admin'))
-
-def _permisos_sesion():
-    permisos = session.get('permisos', [])
-    if isinstance(permisos, str):
-        try: permisos = json.loads(permisos)
-        except Exception: permisos = [p.strip() for p in permisos.split(',') if p.strip()]
-    if isinstance(permisos, list): return {str(p): True for p in permisos}
-    return permisos if isinstance(permisos, dict) else {}
-
 def tiene_permiso_en_sesion(permiso):
-    if not session.get('usuario_id'): return False
-    if es_super_admin_sesion() or session.get('es_admin'): return True
-    permisos = _permisos_sesion()
-    return bool(permisos.get(permiso) or (permiso.endswith('_read') and permisos.get(permiso[:-5])))
-
-def tiene_permiso_crud(modulo, accion):
-    if accion not in ('read','create','update','delete'): return False
-    if es_super_admin_sesion() or session.get('es_admin'): return True
-    permisos = _permisos_sesion()
-    return bool(permisos.get(f'{modulo}_{accion}') or permisos.get(modulo))
-
-def exigir_crud(modulo, accion):
-    if not session.get('usuario_id'): return jsonify({'error':'Sesión requerida.'}), 401
-    if not tiene_permiso_crud(modulo, accion): return respuesta_sin_permiso()
-    return None
+    """Comprueba permisos de la sesión para operaciones sensibles."""
+    if not session.get('usuario_id'):
+        return False
+    if session.get('es_admin'):
+        return True
+    return permiso in session.get('permisos', [])
 
 def puede_gestionar_parametros():
-    return tiene_permiso_crud('parametros','update') or tiene_permiso_crud('parametros','create')
+    return tiene_permiso_en_sesion('parametros')
 
 def puede_agregar_tasa():
-    return tiene_permiso_crud('parametros','create') or tiene_permiso_en_sesion('agregar_tasa')
+    return puede_gestionar_parametros() or tiene_permiso_en_sesion('agregar_tasa')
 
 def respuesta_sin_permiso():
     return jsonify({'error': 'No tienes permiso para realizar esta operación.'}), 403
-
-def registrar_auditoria(conn, accion, modulo, registro_id=None, detalle=''):
-    try:
-        conn.execute('INSERT INTO auditoria_log (fecha_registro, usuario, accion, modulo, registro_id, detalle) VALUES (?,?,?,?,?,?)', (datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), session.get('usuario', session.get('nombre', 'Sistema')), accion, modulo, registro_id, detalle))
-    except Exception:
-        pass
 
 def es_ultimo_administrador_activo(conn, usuario_id):
     """Indica si el usuario es el único administrador activo restante."""
@@ -235,17 +201,12 @@ def api_login():
                 session['usuario_id'] = row['id']
                 session['nombre'] = row['nombre']
                 session['usuario'] = row['usuario']
-                session['es_admin'] = bool(row['es_admin']) or row['usuario'] == 'admin'
-                session['activo'] = True if row['usuario'] == 'admin' else bool(row['activo'])
+                session['es_admin'] = row['es_admin']
                 session['permisos'] = permisos_list
                 
                 return jsonify({
-                    'id': row['id'],
-                    'nombre': row['nombre'],
-                    'usuario': row['usuario'],
-                    'activo': True if row['usuario'] == 'admin' else bool(row['activo']),
-                    'es_admin': True if row['usuario'] == 'admin' else bool(row['es_admin']),
-                    'permisos': permisos_list
+                    'id': row['id'], 'nombre': row['nombre'], 'usuario': row['usuario'],
+                    'es_admin': row['es_admin'], 'permisos': permisos_list
                 })
             return jsonify({'error': 'Usuario o contraseña inválidos.'}), 401
         finally:
@@ -261,7 +222,6 @@ def api_sesion():
             'id': session['usuario_id'],
             'nombre': session['nombre'],
             'usuario': session['usuario'],
-            'activo': session.get('activo', True),
             'es_admin': session['es_admin'],
             'permisos': session.get('permisos', [])
         })
@@ -284,8 +244,6 @@ def index():
 
 @app.route('/api/resumen', methods=['GET'])
 def api_resumen():
-    if not session.get('usuario_id'):
-        return jsonify({'error': 'Sesión requerida.'}), 401
     conn = get_db_connection()
     try:
         c = conn.execute('SELECT COUNT(*) FROM clientes').fetchone()[0]
@@ -293,18 +251,18 @@ def api_resumen():
         prod = conn.execute('SELECT COUNT(*) FROM productos').fetchone()[0]
         v = conn.execute('SELECT COUNT(*) FROM ventas').fetchone()[0]
         pend_clientes = conn.execute("SELECT COUNT(*) FROM clientes WHERE documento = 'PENDIENTE' OR documento = ''").fetchone()[0]
-        pend_stock = conn.execute("SELECT COUNT(*) FROM productos p WHERE (COALESCE((SELECT SUM(CASE WHEN tipo IN ('Inventario Inicial','Compra','Devolución por venta') THEN cantidad WHEN tipo IN ('Venta','Descarga por daño/motivo','Devolución por compra') THEN -cantidad WHEN tipo='Ajuste administrativo' AND tipo_ajuste='CORRECCION_ENTRADA' THEN cantidad WHEN tipo='Ajuste administrativo' AND tipo_ajuste='CORRECCION_SALIDA' THEN -cantidad ELSE 0 END) FROM movimientos WHERE producto_id=p.id AND anulado=FALSE),0)) <= p.stock_minimo").fetchone()[0]
+        pend_stock = conn.execute("SELECT COUNT(*) FROM productos p WHERE (COALESCE((SELECT SUM(cantidad) FROM movimientos WHERE producto_id = p.id AND tipo IN ('Inventario Inicial', 'Compra', 'Devolución por venta')), 0) - COALESCE((SELECT SUM(cantidad) FROM movimientos WHERE producto_id = p.id AND tipo IN ('Venta', 'Descarga por daño/motivo', 'Devolución por compra')), 0)) <= p.stock_minimo").fetchone()[0]
         return jsonify({'conteo': {'clientes': c, 'proveedores': p, 'productos': prod, 'ventas': v}, 'notificaciones': {'clientes_pendientes': pend_clientes, 'stock_bajo': pend_stock}})
     except Exception as e: return jsonify({'error': str(e)}), 500
     finally: conn.close()
 
 @app.route('/api/configuracion', methods=['GET', 'POST'])
 def api_configuracion():
-    guard=exigir_crud('configuracion','update' if request.method=='POST' else 'read')
-    if guard: return guard
     conn = get_db_connection()
     try:
         if request.method == 'POST':
+            if not tiene_permiso_en_sesion('configuracion'):
+                return respuesta_sin_permiso()
             d = request.json
             for k, v in d.items(): 
                 conn.execute("UPDATE configuracion SET valor = ? WHERE clave = ?", (str(v), k))
@@ -317,122 +275,46 @@ def api_configuracion():
 
 @app.route('/api/stock_almacenes/<int:producto_id>', methods=['GET'])
 def api_stock_almacenes(producto_id):
-    guard=exigir_crud('existencias','read')
-    if guard: return guard
-    conn=get_db_connection()
+    conn = get_db_connection()
     try:
-        q="SELECT a.id,a.nombre,COALESCE(SUM(CASE WHEN m.almacen_destino_id=a.id AND m.tipo IN ('Inventario Inicial','Compra','Traspaso','Devolución por venta') AND m.anulado=FALSE THEN m.cantidad ELSE 0 END),0)-COALESCE(SUM(CASE WHEN m.almacen_origen_id=a.id AND m.tipo IN ('Traspaso','Descarga por daño/motivo','Devolución por compra') AND m.anulado=FALSE THEN m.cantidad ELSE 0 END),0)+COALESCE(SUM(CASE WHEN m.almacen_destino_id=a.id AND m.tipo='Ajuste administrativo' AND m.tipo_ajuste='CORRECCION_ENTRADA' AND m.anulado=FALSE THEN m.cantidad ELSE 0 END),0)-COALESCE(SUM(CASE WHEN m.almacen_origen_id=a.id AND m.tipo='Ajuste administrativo' AND m.tipo_ajuste='CORRECCION_SALIDA' AND m.anulado=FALSE THEN m.cantidad ELSE 0 END),0) AS stock FROM almacenes a LEFT JOIN movimientos m ON (a.id=m.almacen_destino_id OR a.id=m.almacen_origen_id) AND m.producto_id=? GROUP BY a.id ORDER BY a.id"
-        return jsonify([dict(x) for x in conn.execute(q,(producto_id,)).fetchall()])
+        query = "SELECT a.id, a.nombre, COALESCE(SUM(CASE WHEN m.almacen_destino_id = a.id AND m.tipo IN ('Inventario Inicial', 'Compra', 'Traspaso', 'Devolución por venta') THEN m.cantidad ELSE 0 END), 0) - COALESCE(SUM(CASE WHEN m.almacen_origen_id = a.id AND m.tipo IN ('Traspaso', 'Descarga por daño/motivo', 'Devolución por compra') THEN m.cantidad ELSE 0 END), 0) as stock FROM almacenes a LEFT JOIN movimientos m ON (a.id = m.almacen_destino_id OR a.id = m.almacen_origen_id) AND m.producto_id = ? GROUP BY a.id"
+        data = conn.execute(query, (producto_id,)).fetchall()
+        return jsonify([dict(ix) for ix in data])
     finally: conn.close()
 
 @app.route('/api/movimientos', methods=['POST'])
 def registrar_movimiento():
-    if not es_super_admin_sesion(): return respuesta_sin_permiso()
-    usuario_actual = session.get('nombre','Sistema')
+    usuario_actual = session.get('nombre', 'Sistema')
     conn = get_db_connection()
     try:
-        d = request.json or {}
-        tipo = (d.get('tipo') or '').strip()
-        tipos_validos = {'Inventario Inicial','Compra','Descarga por daño/motivo','Traspaso','Devolución por compra'}
-        if tipo not in tipos_validos: return jsonify({'error':'Tipo de movimiento no permitido.'}),400
-        producto_id = safe_int(d.get('producto_id')); cantidad = safe_float(d.get('cantidad'))
-        if not producto_id or cantidad <= 0: return jsonify({'error':'Producto y cantidad mayor a cero son obligatorios.'}),400
-        ahora = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'); fecha_mov = d.get('fecha_registro') or ahora
-        if tipo in ('Inventario Inicial','Compra'):
-            destino = safe_int(d.get('almacen_destino_id'))
-            if not destino or destino in (9998,9999): return jsonify({'error':'El almacén destino no es válido para una carga normal.'}),400
-        if tipo == 'Traspaso':
-            origen=safe_int(d.get('almacen_origen_id')); destino=safe_int(d.get('almacen_destino_id'))
-            if not origen or not destino or origen==destino: return jsonify({'error':'El traspaso requiere almacenes origen y destino diferentes.'}),400
-            stock=conn.execute("SELECT COALESCE(SUM(CASE WHEN almacen_destino_id=? AND tipo IN ('Inventario Inicial','Compra','Traspaso','Devolución por venta') AND anulado=FALSE THEN cantidad ELSE 0 END),0)-COALESCE(SUM(CASE WHEN almacen_origen_id=? AND tipo IN ('Traspaso','Descarga por daño/motivo','Devolución por compra') AND anulado=FALSE THEN cantidad ELSE 0 END),0)+COALESCE(SUM(CASE WHEN almacen_destino_id=? AND tipo='Ajuste administrativo' AND tipo_ajuste='CORRECCION_ENTRADA' AND anulado=FALSE THEN cantidad ELSE 0 END),0)-COALESCE(SUM(CASE WHEN almacen_origen_id=? AND tipo='Ajuste administrativo' AND tipo_ajuste='CORRECCION_SALIDA' AND anulado=FALSE THEN cantidad ELSE 0 END),0) AS stock FROM movimientos WHERE producto_id=?",(origen,origen,origen,origen,producto_id)).fetchone()['stock']
-            if float(stock or 0)+1e-9<cantidad: return jsonify({'error':f'Stock insuficiente en el almacén origen. Disponible: {float(stock or 0):g}.'}),400
-        if tipo in ('Descarga por daño/motivo','Devolución por compra'):
-            origen=safe_int(d.get('almacen_origen_id'))
-            if not origen: return jsonify({'error':'Debe indicar el almacén origen.'}),400
-            stock=conn.execute("SELECT COALESCE(SUM(CASE WHEN almacen_destino_id=? AND tipo IN ('Inventario Inicial','Compra','Traspaso','Devolución por venta') AND anulado=FALSE THEN cantidad ELSE 0 END),0)-COALESCE(SUM(CASE WHEN almacen_origen_id=? AND tipo IN ('Traspaso','Descarga por daño/motivo','Devolución por compra') AND anulado=FALSE THEN cantidad ELSE 0 END),0)+COALESCE(SUM(CASE WHEN almacen_destino_id=? AND tipo='Ajuste administrativo' AND tipo_ajuste='CORRECCION_ENTRADA' AND anulado=FALSE THEN cantidad ELSE 0 END),0)-COALESCE(SUM(CASE WHEN almacen_origen_id=? AND tipo='Ajuste administrativo' AND tipo_ajuste='CORRECCION_SALIDA' AND anulado=FALSE THEN cantidad ELSE 0 END),0) AS stock FROM movimientos WHERE producto_id=?",(origen,origen,origen,origen,producto_id)).fetchone()['stock']
-            if float(stock or 0)+1e-9<cantidad: return jsonify({'error':f'Stock insuficiente en el almacén origen. Disponible: {float(stock or 0):g}.'}),400
-        ult=conn.execute('SELECT id FROM movimientos ORDER BY id DESC LIMIT 1').fetchone(); consecutivo=f"MOV-{str((ult['id']+1) if ult else 1).zfill(5)}"
-        conn.execute('INSERT INTO movimientos (consecutivo,fecha_registro,tipo,producto_id,cantidad,costo_unitario,almacen_origen_id,almacen_destino_id,motivo,documento,registrado_por,movimiento_origen_id,tipo_ajuste,anulado) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,FALSE)',(consecutivo,fecha_mov,tipo,producto_id,cantidad,safe_float(d.get('costo_unitario')),safe_int(d.get('almacen_origen_id')) or None,safe_int(d.get('almacen_destino_id')) or None,d.get('motivo',''),d.get('documento',''),usuario_actual,None,''))
-        if 'precio_usd' in d and d['precio_usd']!='': conn.execute('UPDATE productos SET precio_usd=? WHERE id=?',(safe_float(d['precio_usd']),producto_id))
-        registrar_auditoria(conn,'CREAR','movimientos',None,f'{tipo} | producto={producto_id} | cantidad={cantidad}')
-        conn.commit(); return jsonify({'status':'ok'})
-    except Exception as e:
-        conn.conn.rollback(); return jsonify({'error':str(e)}),500
-    finally: conn.close()
-
-@app.route('/api/movimientos/<int:id>', methods=['PUT','DELETE'])
-def editar_movimiento_admin(id):
-    if not es_super_admin_sesion(): return respuesta_sin_permiso()
-    if request.method == 'DELETE': return anular_movimiento(id)
-    conn=get_db_connection()
-    try:
-        original=conn.execute('SELECT * FROM movimientos WHERE id=?',(id,)).fetchone()
-        if not original: return jsonify({'error':'El movimiento no existe.'}),404
-        if original['tipo'] not in ('Inventario Inicial','Compra'): return jsonify({'error':'Solo se pueden corregir cargas de Inventario Inicial o Compra.'}),400
-        if original['anulado']: return jsonify({'error':'La carga está anulada.'}),400
-        # La carga se puede corregir varias veces. Siempre calculamos contra el
-        # último estado efectivo, sin modificar ni borrar el historial anterior.
-        ajustes=conn.execute("SELECT cantidad,costo_unitario,tipo_ajuste FROM movimientos WHERE movimiento_origen_id=? AND tipo='Ajuste administrativo' AND anulado=FALSE ORDER BY id ASC",(id,)).fetchall()
-        cantidad_actual=float(original['cantidad'] or 0)
-        costo_actual=float(original['costo_unitario'] or 0)
-        for a in ajustes:
-            cantidad_actual += float(a['cantidad'] or 0) if a['tipo_ajuste']=='CORRECCION_ENTRADA' else -float(a['cantidad'] or 0) if a['tipo_ajuste']=='CORRECCION_SALIDA' else 0
-            costo_actual=float(a['costo_unitario'] or costo_actual)
-        d=request.json or {}; nueva_cantidad=safe_float(d.get('cantidad')); nuevo_costo=safe_float(d.get('costo_unitario'))
-        if nueva_cantidad<=0 or nuevo_costo<0: return jsonify({'error':'Cantidad y costo deben ser válidos.'}),400
-        delta=nueva_cantidad-cantidad_actual; fecha=datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        if delta < 0:
-            almacen=original['almacen_destino_id']
-            stock_actual=conn.execute("SELECT COALESCE(SUM(CASE WHEN almacen_destino_id=? AND tipo IN ('Inventario Inicial','Compra','Traspaso','Devolución por venta') AND anulado=FALSE THEN cantidad WHEN almacen_origen_id=? AND tipo IN ('Traspaso','Descarga por daño/motivo','Devolución por compra') AND anulado=FALSE THEN -cantidad WHEN almacen_destino_id=? AND tipo='Ajuste administrativo' AND tipo_ajuste='CORRECCION_ENTRADA' AND anulado=FALSE THEN cantidad WHEN almacen_origen_id=? AND tipo='Ajuste administrativo' AND tipo_ajuste='CORRECCION_SALIDA' AND anulado=FALSE THEN -cantidad ELSE 0 END),0) FROM movimientos WHERE producto_id=?",(almacen,almacen,almacen,almacen,original['producto_id'])).fetchone()[0]
-            if float(stock_actual or 0)+delta < -1e-9: return jsonify({'error':f'No se puede reducir la carga: el stock actual del almacén no alcanza. Disponible {float(stock_actual or 0):g}.'}),400
-        ajuste='CORRECCION_ENTRADA' if delta>=0 else 'CORRECCION_SALIDA'
-        consecutivo=f"MOV-ADM-{id}-{int(datetime.datetime.now().timestamp())}"
-        motivo=f"Corrección administrativa de {original['consecutivo']}. Cantidad efectiva: {cantidad_actual:g} -> {nueva_cantidad:g}. Costo efectivo: {costo_actual:.6f} -> {nuevo_costo:.6f}."
-        conn.execute('INSERT INTO movimientos (consecutivo,fecha_registro,tipo,producto_id,cantidad,costo_unitario,almacen_origen_id,almacen_destino_id,motivo,documento,registrado_por,movimiento_origen_id,tipo_ajuste,anulado) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,FALSE)',(consecutivo,fecha,'Ajuste administrativo',original['producto_id'],abs(delta),nuevo_costo,original['almacen_destino_id'] if delta<0 else None,original['almacen_destino_id'] if delta>=0 else None,motivo,original['documento'] or '',session.get('nombre','admin'),id,ajuste))
-        # El costo vigente del registro original se actualiza solo cuando la cantidad no cambia.
-        # Si cambia la cantidad, el ajuste queda con el nuevo costo y la valoración vigente se toma del último ajuste.
-        registrar_auditoria(conn,'CORREGIR','movimientos',id,motivo); conn.commit(); return jsonify({'status':'ok','consecutivo':consecutivo})
-    except Exception as e:
-        conn.conn.rollback(); return jsonify({'error':str(e)}),500
-    finally: conn.close()
-
-@app.route('/api/movimientos/<int:id>/anular', methods=['POST'])
-def anular_movimiento(id):
-    if not es_super_admin_sesion(): return respuesta_sin_permiso()
-    conn=get_db_connection()
-    try:
-        mov=conn.execute('SELECT * FROM movimientos WHERE id=?',(id,)).fetchone()
-        if not mov: return jsonify({'error':'Movimiento no encontrado.'}),404
-        if mov['anulado']: return jsonify({'error':'El movimiento ya está anulado.'}),400
-        if mov['tipo']=='Ajuste administrativo':
-            conn.execute('UPDATE movimientos SET anulado=TRUE WHERE id=?',(id,))
-            registrar_auditoria(conn,'REVERTIR_AJUSTE','movimientos',id,f"Reversión del ajuste administrativo {mov['consecutivo']}")
-            conn.commit(); return jsonify({'status':'ok'})
-        hijo=conn.execute('SELECT id FROM movimientos WHERE movimiento_origen_id=? AND anulado=FALSE LIMIT 1',(id,)).fetchone()
-        if hijo: return jsonify({'error':'Primero anule la corrección administrativa asociada.'}),400
-        if mov['tipo'] in ('Inventario Inicial','Compra','Devolución por venta','Traspaso'):
-            almacen=mov['almacen_destino_id']
-            stock_actual=conn.execute("SELECT COALESCE(SUM(CASE WHEN almacen_destino_id=? AND tipo IN ('Inventario Inicial','Compra','Traspaso','Devolución por venta') AND anulado=FALSE THEN cantidad WHEN almacen_origen_id=? AND tipo IN ('Traspaso','Descarga por daño/motivo','Devolución por compra') AND anulado=FALSE THEN -cantidad WHEN almacen_destino_id=? AND tipo='Ajuste administrativo' AND tipo_ajuste='CORRECCION_ENTRADA' AND anulado=FALSE THEN cantidad WHEN almacen_origen_id=? AND tipo='Ajuste administrativo' AND tipo_ajuste='CORRECCION_SALIDA' AND anulado=FALSE THEN -cantidad ELSE 0 END),0) FROM movimientos WHERE producto_id=?",(almacen,almacen,almacen,almacen,mov['producto_id'])).fetchone()[0]
-            if float(stock_actual or 0)+1e-9<float(mov['cantidad'] or 0): return jsonify({'error':'No se puede anular porque parte de esta existencia ya fue consumida o movida.'}),400
-        conn.execute('UPDATE movimientos SET anulado=TRUE WHERE id=?',(id,)); registrar_auditoria(conn,'ANULAR','movimientos',id,f"Anulación administrativa de {mov['consecutivo']}"); conn.commit(); return jsonify({'status':'ok'})
-    except Exception as e:
-        conn.conn.rollback(); return jsonify({'error':str(e)}),500
+        d = request.json
+        ahora = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        fecha_mov = d.get('fecha_registro') if d.get('fecha_registro') else ahora
+        ult_mov = conn.execute('SELECT id FROM movimientos ORDER BY id DESC LIMIT 1').fetchone()
+        consecutivo = f"MOV-{str((ult_mov[0] + 1) if ult_mov else 1).zfill(5)}"
+        
+        conn.execute('''INSERT INTO movimientos (consecutivo, fecha_registro, tipo, producto_id, cantidad, costo_unitario, almacen_origen_id, almacen_destino_id, motivo, documento, registrado_por) VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
+                      (consecutivo, fecha_mov, d['tipo'], d['producto_id'], safe_float(d.get('cantidad')), safe_float(d.get('costo_unitario')), safe_int(d.get('almacen_origen_id')) or None, safe_int(d.get('almacen_destino_id')) or None, d.get('motivo',''), d.get('documento',''), usuario_actual))
+        if 'precio_usd' in d and d['precio_usd'] != "":
+            conn.execute("UPDATE productos SET precio_usd = ? WHERE id = ?", (safe_float(d['precio_usd']), d['producto_id']))
+            
+        conn.commit()
+        return jsonify({'status': 'ok'})
+    except Exception as e: return jsonify({'error': str(e)}), 500
     finally: conn.close()
 
 @app.route('/api/existencias', methods=['GET'])
 def api_existencias():
-    guard=exigir_crud('existencias','read')
-    if guard: return guard
     conn = get_db_connection()
     try:
         query = '''
             SELECT p.id, p.codigo_barras, p.descripcion, p.stock_minimo, p.unidad_medida, p.estado, 
-            COALESCE(SUM(CASE WHEN m.tipo IN ('Inventario Inicial', 'Compra', 'Devolución por venta') THEN m.cantidad WHEN m.tipo IN ('Venta', 'Descarga por daño/motivo', 'Devolución por compra') THEN -m.cantidad WHEN m.tipo='Ajuste administrativo' AND m.tipo_ajuste='CORRECCION_ENTRADA' THEN m.cantidad WHEN m.tipo='Ajuste administrativo' AND m.tipo_ajuste='CORRECCION_SALIDA' THEN -m.cantidad ELSE 0 END), 0) as stock_fisico_total,
+            COALESCE(SUM(CASE WHEN m.tipo IN ('Inventario Inicial', 'Compra', 'Devolución por venta') THEN m.cantidad ELSE 0 END), 0) - COALESCE(SUM(CASE WHEN m.tipo IN ('Venta', 'Descarga por daño/motivo', 'Devolución por compra') THEN m.cantidad ELSE 0 END), 0) as stock_fisico_total,
             COALESCE(SUM(CASE WHEN m.almacen_destino_id = 9999 THEN m.cantidad ELSE 0 END), 0) - COALESCE(SUM(CASE WHEN m.almacen_origen_id = 9999 THEN m.cantidad ELSE 0 END), 0) as stock_devoluciones,
             COALESCE(SUM(CASE WHEN m.almacen_destino_id = 9998 THEN m.cantidad ELSE 0 END), 0) - COALESCE(SUM(CASE WHEN m.almacen_origen_id = 9998 THEN m.cantidad ELSE 0 END), 0) as stock_merma,
-            (SELECT costo_unitario FROM movimientos WHERE producto_id = p.id AND anulado=FALSE AND tipo IN ('Inventario Inicial', 'Compra', 'Ajuste administrativo') ORDER BY id DESC LIMIT 1) as costo_unit,
+            (SELECT costo_unitario FROM movimientos WHERE producto_id = p.id AND tipo IN ('Inventario Inicial', 'Compra') ORDER BY id DESC LIMIT 1) as costo_unit,
             p.precio_usd 
-            FROM productos p LEFT JOIN movimientos m ON p.id = m.producto_id AND m.anulado=FALSE GROUP BY p.id ORDER BY p.descripcion ASC
+            FROM productos p LEFT JOIN movimientos m ON p.id = m.producto_id GROUP BY p.id ORDER BY p.descripcion ASC
         '''
         data = conn.execute(query).fetchall()
         resultados = []
@@ -448,8 +330,6 @@ def api_existencias():
 
 @app.route('/api/kardex', methods=['GET'])
 def api_kardex():
-    guard=exigir_crud('kardex','read')
-    if guard: return guard
     conn = get_db_connection()
     try:
         data = conn.execute('''SELECT m.*, COALESCE(p.descripcion, 'Producto Eliminado') as producto_nombre, 
@@ -463,8 +343,6 @@ def api_kardex():
 
 @app.route('/api/ventas', methods=['GET', 'POST'])
 def api_ventas():
-    guard=exigir_crud('ventas','create' if request.method=='POST' else 'read')
-    if guard: return guard
     usuario_actual = session.get('nombre', 'Sistema')
     conn = get_db_connection()
     try:
@@ -495,23 +373,21 @@ def api_ventas():
                                         COALESCE(SUM(CASE
                                             WHEN tipo IN ('Inventario Inicial', 'Compra', 'Devolución por venta') THEN cantidad
                                             WHEN tipo IN ('Venta', 'Descarga por daño/motivo', 'Devolución por compra') THEN -cantidad
-                                            WHEN tipo='Ajuste administrativo' AND tipo_ajuste='CORRECCION_ENTRADA' THEN cantidad
-                                            WHEN tipo='Ajuste administrativo' AND tipo_ajuste='CORRECCION_SALIDA' THEN -cantidad
                                             ELSE 0
                                         END), 0)
                                         - (
                                             COALESCE(SUM(CASE WHEN almacen_destino_id IN (9998, 9999) THEN cantidad ELSE 0 END), 0)
                                             - COALESCE(SUM(CASE WHEN almacen_origen_id IN (9998, 9999) THEN cantidad ELSE 0 END), 0)
                                         ) AS disponible
-                                    FROM movimientos WHERE producto_id = ? AND anulado=FALSE''', (producto_id,)).fetchone()
+                                    FROM movimientos WHERE producto_id = ?''', (producto_id,)).fetchone()
                 if cantidad_solicitada > float(stock['disponible'] or 0):
                     return jsonify({'error': 'No hay existencias suficientes para completar la venta.'}), 400
             
             existe = conn.execute('SELECT id FROM clientes WHERE nombre = ?', (c_nombre,)).fetchone()
-            if existe and tiene_permiso_crud('clientes','update'):
+            if existe:
                 conn.execute('UPDATE clientes SET documento=?, telefono=?, correo=?, pais=?, estado=?, municipio=?, direccion_entrega=?, punto_referencia=?, coordenadas=?, tipo_envio=? WHERE id=?',
                               (d.get('cliente_doc', 'PENDIENTE'), d.get('cliente_telefono', ''), d.get('cliente_correo', ''), d.get('env_pais', 'Venezuela'), d.get('env_estado', ''), d.get('env_ciudad', ''), d.get('env_direccion', ''), d.get('env_referencia', ''), d.get('env_coordenadas', ''), d.get('env_tipo', ''), existe['id']))
-            elif not existe and tiene_permiso_crud('clientes','create'):
+            else:
                 conn.execute('INSERT INTO clientes (documento, nombre, telefono, correo, pais, estado, municipio, direccion_entrega, punto_referencia, coordenadas, tipo_envio, fecha_registro, registrado_por) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
                               (d.get('cliente_doc', 'PENDIENTE'), c_nombre, d.get('cliente_telefono', ''), d.get('cliente_correo', ''), d.get('env_pais', 'Venezuela'), d.get('env_estado', ''), d.get('env_ciudad', ''), d.get('env_direccion', ''), d.get('env_referencia', ''), d.get('env_coordenadas', ''), d.get('env_tipo', ''), ahora, usuario_actual))
             
@@ -554,8 +430,6 @@ def api_ventas():
 
 @app.route('/api/ventas/detalles/<consecutivo>', methods=['GET'])
 def get_detalles_venta(consecutivo):
-    guard=exigir_crud('historial_ventas','read')
-    if guard: return guard
     conn = get_db_connection()
     try:
         query = '''SELECT d.*, COALESCE(p.descripcion, 'Producto Eliminado') as producto_nombre, p.codigo_barras as codigo
@@ -567,8 +441,6 @@ def get_detalles_venta(consecutivo):
 
 @app.route('/api/clientes/notas_credito/<cliente_nombre>', methods=['GET'])
 def get_notas_credito_cliente(cliente_nombre):
-    guard=exigir_crud('ventas','read')
-    if guard: return guard
     conn = get_db_connection()
     try:
         query = "SELECT * FROM notas_credito WHERE cliente_nombre = ? AND estado = 'DISPONIBLE'"
@@ -578,8 +450,6 @@ def get_notas_credito_cliente(cliente_nombre):
 
 @app.route('/api/devoluciones', methods=['POST'])
 def registrar_devolucion():
-    guard=exigir_crud('historial_ventas','create')
-    if guard: return guard
     usuario_actual = session.get('nombre', 'Sistema')
     conn = get_db_connection()
     try:
@@ -651,8 +521,6 @@ def registrar_devolucion():
 
 @app.route('/api/notas_credito/detalles/<consecutivo_nc>', methods=['GET'])
 def get_detalles_nota_credito(consecutivo_nc):
-    guard=exigir_crud('historial_ventas','read')
-    if guard: return guard
     conn = get_db_connection()
     try:
         query = '''SELECT d.*, COALESCE(p.descripcion, 'Producto Eliminado') as producto_nombre, p.codigo_barras as codigo
@@ -664,7 +532,6 @@ def get_detalles_nota_credito(consecutivo_nc):
 
 @app.route('/api/lista_precios_data', methods=['GET'])
 def api_lista_precios_data():
-    if not (tiene_permiso_crud('lista_precios','read') or tiene_permiso_crud('ventas','read')): return respuesta_sin_permiso()
     conn = get_db_connection()
     try:
         hoy = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -704,8 +571,6 @@ def api_lista_precios_data():
 
 @app.route('/api/historico_precios/<fecha>', methods=['GET'])
 def get_historico_precios(fecha):
-    guard=exigir_crud('lista_precios','read')
-    if guard: return guard
     conn = get_db_connection()
     try:
         data = conn.execute("SELECT json_data FROM historico_precios_dia WHERE fecha = ?", (fecha,)).fetchone()
@@ -781,15 +646,6 @@ def obtener_brecha_maxima():
     finally:
         conn.close()
 
-@app.route('/api/auditoria', methods=['GET'])
-def api_auditoria():
-    if not session.get('es_admin'): return respuesta_sin_permiso()
-    conn=get_db_connection()
-    try:
-        rows=conn.execute('SELECT * FROM auditoria_log ORDER BY id DESC LIMIT 1000').fetchall()
-        return jsonify([dict(r) for r in rows])
-    finally: conn.close()
-
 # ----------------- RUTAS DINÁMICAS (CRUD GENÉRICO) -----------------
 @app.route('/api/<tabla>', methods=['GET', 'POST'])
 def api_tabla(tabla):
@@ -810,16 +666,22 @@ def api_crud(tabla, request, id=None):
         ahora = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         tabla_db = 'historico_tasas' if tabla == 'tasas' else tabla
         tabla_db = 'historico_coberturas' if tabla == 'coberturas' else tabla_db
-        modulo_permiso = 'parametros' if tabla in ('tasas','coberturas') else tabla
-        accion_permiso = {'GET':'read','POST':'create','PUT':'update','DELETE':'delete'}[request.method]
-        guard = exigir_crud(modulo_permiso, accion_permiso)
-        if tabla == 'tasas' and request.method == 'POST':
-            guard = None if puede_agregar_tasa() else guard
-        if guard: return guard
 
-        if tabla == 'usuarios' and not session.get('es_admin'):
+        if tabla == 'usuarios' and not tiene_permiso_en_sesion('usuarios'):
             return respuesta_sin_permiso()
 
+        # Un usuario con el permiso especial puede registrar una tasa desde el
+        # dashboard, pero no consultar, editar ni borrar información sensible.
+        if tabla == 'tasas':
+            if request.method == 'POST' and not puede_agregar_tasa():
+                return respuesta_sin_permiso()
+            if request.method != 'POST' and not puede_gestionar_parametros():
+                return respuesta_sin_permiso()
+
+        # El historial de coberturas es parte del módulo crítico de parámetros.
+        if tabla == 'coberturas' and not puede_gestionar_parametros():
+            return respuesta_sin_permiso()
+        
         if request.method == 'GET':
             query = f'SELECT * FROM {tabla_db} ORDER BY id DESC'
             if tabla_db == 'productos': 
@@ -859,11 +721,9 @@ def api_crud(tabla, request, id=None):
                 conn.execute('''INSERT INTO historico_coberturas (fecha_registro, rango_evaluado, fecha_pico_maximo, porcentaje_cobertura, factor_proteccion, registrado_por, estado) VALUES (?,?,?,?,?,?,?)''',
                               (ahora, d.get('rango_evaluado',''), d.get('fecha_pico_maximo',''), safe_float(d.get('porcentaje_cobertura')), safe_float(d.get('factor_proteccion')), usuario_actual, d.get('estado', 'ACTIVO')))
             elif tabla_db == 'usuarios':
-                if d.get('es_admin', False) and not es_super_admin_sesion(): return jsonify({'error':'Solo la cuenta raíz admin puede crear otros administradores.'}),403
                 hashed = generate_password_hash(d['contrasena'])
                 conn.execute("INSERT INTO usuarios (nombre, usuario, contrasena, activo, es_admin, permisos, fecha_registro) VALUES (?, ?, ?, ?, ?, ?, ?)",
                              (d['nombre'], d['usuario'], hashed, d.get('activo', True), d.get('es_admin', False), json.dumps(d.get('permisos', [])), ahora))
-            registrar_auditoria(conn, 'CREAR', tabla, None, f'Creación en {tabla}')
             conn.commit()
             return jsonify({'status': 'ok'})
             
@@ -875,9 +735,8 @@ def api_crud(tabla, request, id=None):
             elif tabla_db == 'proveedores': 
                 conn.execute('UPDATE proveedores SET nombre=?, correo=?, telefono=?, direccion=?, tipo=? WHERE id=?', 
                              (d.get('nombre',''), d.get('correo',''), d.get('telefono',''), d.get('direccion',''), d.get('tipo',''), id))
-            elif tabla_db == 'almacenes':
-                if id in (9998,9999): return jsonify({'error':'Los almacenes automáticos del sistema están protegidos.'}),403
-                conn.execute('UPDATE almacenes SET nombre=?, ubicacion=? WHERE id=?',
+            elif tabla_db == 'almacenes': 
+                conn.execute('UPDATE almacenes SET nombre=?, ubicacion=? WHERE id=?', 
                              (d.get('nombre',''), d.get('ubicacion',''), id))
             elif tabla_db == 'categorias': 
                 conn.execute('UPDATE categorias SET nombre=?, descripcion=? WHERE id=?', 
@@ -897,10 +756,6 @@ def api_crud(tabla, request, id=None):
                               safe_float(d.get('porcentaje_cobertura')),
                               safe_float(d.get('factor_proteccion')), d.get('estado', 'ACTIVO'), id))
             elif tabla_db == 'usuarios':
-                existente=conn.execute('SELECT * FROM usuarios WHERE id=?',(id,)).fetchone()
-                if not existente: return jsonify({'error':'Usuario no encontrado.'}),404
-                if existente['usuario']=='admin' or existente['protegido']: return jsonify({'error':'La cuenta raíz admin está protegida y no puede modificarse.'}),403
-                if (existente['es_admin'] or d.get('es_admin', False)) and not es_super_admin_sesion(): return jsonify({'error':'Solo la cuenta raíz admin puede modificar o elevar cuentas de administrador.'}),403
                 if es_ultimo_administrador_activo(conn, id) and not (d.get('es_admin', False) and d.get('activo', True)):
                     return jsonify({'error': 'Debe permanecer al menos un administrador activo en el sistema.'}), 400
                 if d.get('contrasena'):
@@ -910,45 +765,26 @@ def api_crud(tabla, request, id=None):
                 else:
                     conn.execute("UPDATE usuarios SET nombre=?, usuario=?, activo=?, es_admin=?, permisos=? WHERE id=?",
                                  (d['nombre'], d['usuario'], d.get('activo', True), d.get('es_admin', False), json.dumps(d.get('permisos', [])), id))
-            registrar_auditoria(conn, 'ACTUALIZAR', tabla, id, f'Actualización de {tabla}')
             conn.commit()
             return jsonify({'status': 'ok'})
             
         elif request.method == 'DELETE':
-            if tabla_db == 'almacenes' and id in (9998,9999): return jsonify({'error':'Los almacenes automáticos del sistema están protegidos.'}),403
-            if tabla_db in ('clientes','proveedores','categorias','almacenes','productos'):
-                deps={
-                    'clientes': conn.execute('SELECT COUNT(*) FROM ventas WHERE cliente_nombre=(SELECT nombre FROM clientes WHERE id=?)',(id,)).fetchone()[0],
-                    'proveedores': conn.execute('SELECT COUNT(*) FROM productos WHERE proveedor_id=?',(id,)).fetchone()[0],
-                    'categorias': conn.execute('SELECT COUNT(*) FROM productos WHERE categoria_id=?',(id,)).fetchone()[0],
-                    'almacenes': conn.execute('SELECT COUNT(*) FROM movimientos WHERE almacen_origen_id=? OR almacen_destino_id=?',(id,id)).fetchone()[0],
-                    'productos': conn.execute('SELECT COUNT(*) FROM movimientos WHERE producto_id=?',(id,)).fetchone()[0],
-                }[tabla_db]
-                if deps: return jsonify({'error':f'No se puede eliminar: existen {deps} dependencia(s) históricas.'}),409
             if tabla_db == 'ventas':
-                venta = conn.execute("SELECT consecutivo, estado FROM ventas WHERE id=?", (id,)).fetchone()
-                if not venta: return jsonify({'error': 'La venta indicada no existe.'}), 404
-                if str(venta['estado'] or '').upper().startswith('ANULADA'):
-                    return jsonify({'error':'La venta ya está anulada.'}),400
-                # Eliminar una nota de entrega es una anulación administrativa, no un DELETE físico.
-                conn.execute("UPDATE movimientos SET anulado=TRUE WHERE documento=?", (venta['consecutivo'],))
-                conn.execute("UPDATE ventas SET estado='ANULADA' WHERE id=?", (id,))
-                registrar_auditoria(conn, 'ANULAR', 'ventas', id, f"Anulación administrativa de {venta['consecutivo']}")
+                venta = conn.execute("SELECT consecutivo FROM ventas WHERE id=?", (id,)).fetchone()
+                if not venta:
+                    return jsonify({'error': 'La venta indicada no existe.'}), 404
+                conn.execute("DELETE FROM movimientos WHERE documento=?", (venta['consecutivo'],))
+                conn.execute("DELETE FROM detalle_nota_entrega WHERE consecutivo=?", (venta['consecutivo'],))
+                conn.execute('DELETE FROM ventas WHERE id=?', (id,))
             elif tabla_db == 'usuarios':
-                u=conn.execute('SELECT usuario, protegido, es_admin FROM usuarios WHERE id=?',(id,)).fetchone()
-                if u and (u['usuario']=='admin' or u['protegido']): return jsonify({'error':'La cuenta está protegida y no puede eliminarse.'}),403
-                if u and u['es_admin'] and not es_super_admin_sesion(): return jsonify({'error':'Solo la cuenta raíz admin puede eliminar otros administradores.'}),403
-                if es_ultimo_administrador_activo(conn, id): return jsonify({'error':'No se puede eliminar el último administrador activo.'}),400
-                conn.execute('DELETE FROM usuarios WHERE id=? AND protegido=FALSE',(id,))
+                if es_ultimo_administrador_activo(conn, id):
+                    return jsonify({'error': 'No se puede eliminar el último administrador activo.'}), 400
+                conn.execute('DELETE FROM usuarios WHERE id=? AND protegido=FALSE', (id,))
             else:
                 conn.execute(f'DELETE FROM {tabla_db} WHERE id=?', (id,))
-            registrar_auditoria(conn, 'ELIMINAR', tabla, id, f'Eliminación de {tabla}')
             conn.commit()
             return jsonify({'status': 'ok'})
-    except Exception as e:
-        try: conn.conn.rollback()
-        except Exception: pass
-        return jsonify({'error': str(e)}), 500
+    except Exception as e: return jsonify({'error': str(e)}), 500
     finally: conn.close()
 
 if __name__ == '__main__':

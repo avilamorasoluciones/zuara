@@ -18,10 +18,6 @@ const PERMISOS = [
     'categorias', 'productos', 'existencias', 'movimientos', 'kardex', 'parametros',
     'agregar_tasa', 'lista_precios', 'reportes', 'configuracion', 'usuarios'
 ];
-const CRUD_MODULOS = ['ventas','historial_ventas','clientes','proveedores','almacenes','categorias','productos','existencias','movimientos','kardex','parametros','lista_precios','reportes','configuracion','usuarios'];
-const CRUD_ACCIONES = ['read','create','update','delete'];
-const CRUD_ETIQUETAS = {read:'Consultar',create:'Crear',update:'Editar',delete:'Eliminar'};
-const CRUD_NOMBRES = {ventas:'Nota de entrega',historial_ventas:'Historial de notas',clientes:'Clientes',proveedores:'Proveedores',almacenes:'Almacenes',categorias:'Categorías',productos:'Productos',existencias:'Existencias',movimientos:'Movimientos',kardex:'Kardex',parametros:'Parámetros y tasas',lista_precios:'Lista de precios',reportes:'Reportes',configuracion:'Configuración',usuarios:'Usuarios'};
 
 const PERMISO_POR_MODULO = {
     panel: 'panel', ventas: 'ventas', historial_ventas: 'historial_ventas',
@@ -38,17 +34,16 @@ const modulosUI = [
     { id: 'categorias', icono: 'fa-tags', titulo: 'Categorías', headers: ['Nombre', 'Descripción', 'Registro', 'Acciones'] },
     { id: 'productos', icono: 'fa-box-open', titulo: 'Productos', headers: ['Foto', 'Cód.', 'Descripción', 'Categoría', 'U. Medida', 'Precio Obj. USD', 'Mínimo', 'Estado', 'Acciones'] },
     { id: 'existencias', icono: 'fa-cubes', titulo: 'Existencias Físicas', headers: ['CÓD.', 'DESCRIPCIÓN', 'U. MEDIDA', 'STOCK MÍN.', 'TOTAL FÍSICO (A + B)', 'STOCK DISPONIBLE VENTA (A)', 'EN ALMACÉN DEVOLUCIONES (B)', 'COSTO UNIT.', 'TOTAL COSTO DE ADQUISICIÓN', 'ACCIÓN'] },
-    { id: 'kardex', icono: 'fa-clipboard-list', titulo: 'Kardex General', headers: ['Consec.', 'Fecha', 'Movimiento', 'Producto', 'Cant.', 'Costo U.', 'Responsable', 'Detalles / Motivo', 'Acciones'] },
+    { id: 'kardex', icono: 'fa-clipboard-list', titulo: 'Kardex General', headers: ['Consec.', 'Fecha', 'Movimiento', 'Producto', 'Cant.', 'Costo U.', 'Responsable', 'Detalles / Motivo'] },
     { id: 'historial_ventas', icono: 'fa-receipt', titulo: 'Historial de Notas de Entrega', headers: ['Nº Entrega', 'Fecha', 'Cliente', 'Teléfono', 'Total', 'Devoluciones', 'Acciones'] }
 ];
 
 function inicializarUI() {
-    construirPermisosCRUD();
     const contenedor = document.getElementById('vistas-dinamicas');
     const contenedorModales = document.getElementById('modales-dinamicos');
          
     modulosUI.forEach(m => {
-        let btnNuevo = m.id !== 'existencias' && m.id !== 'kardex' && m.id !== 'historial_ventas' ? `<button class="btn btn-theme rounded-pill shadow bounce-hover px-4 py-2 fw-bold" data-crud-modulo="${m.id}" data-crud-accion="create" onclick="abrirModal('${m.id}')">+ Nuevo</button>` : '';
+        let btnNuevo = m.id !== 'existencias' && m.id !== 'kardex' && m.id !== 'historial_ventas' ? `<button class="btn btn-theme rounded-pill shadow bounce-hover px-4 py-2 fw-bold" data-permiso-accion="${m.id}" onclick="abrirModal('${m.id}')">+ Nuevo</button>` : '';
         let btnExtra = m.id === 'historial_ventas' ? `<button class="btn btn-danger rounded-pill shadow bounce-hover px-4 py-2 fw-bold ms-2" onclick="abrirModalDevoluciones()"><i class="fa-solid fa-rotate-left"></i> Devoluciones por Venta</button>` : '';
                  
         contenedor.innerHTML += `
@@ -129,48 +124,18 @@ function normalizarPermisos(permisos) {
     return permisos && typeof permisos === 'object' ? permisos : {};
 }
 
-function esAdministrador() { return Boolean(sesionActual && (sesionActual.usuario === 'admin' || sesionActual.es_admin || sesionActual.rol === 'ADMIN' || sesionActual.rol === 'ADMINISTRADOR')); }
-function esSuperAdmin() { return Boolean(sesionActual && sesionActual.usuario === 'admin'); }
+function esAdministrador() { return Boolean(sesionActual && (sesionActual.es_admin || sesionActual.rol === 'ADMIN' || sesionActual.rol === 'ADMINISTRADOR')); }
 function tienePermiso(permiso) {
-    if (!sesionActual || !usuarioEstaActivo(sesionActual)) return false;
-    if (esAdministrador()) return true;
+    if (!sesionActual || esAdministrador()) return Boolean(sesionActual && esAdministrador());
     const permisos = normalizarPermisos(sesionActual.permisos);
-    if (permiso === 'agregar_tasa') {
-        return Boolean(permisos.agregar_tasa || permisos.parametros_read || permisos.parametros);
-    }
-    return Boolean(permisos[permiso] || permisos[`${permiso}_read`]);
+    return Boolean(permisos[permiso] || (permiso === 'agregar_tasa' && permisos.parametros));
 }
-function tienePermisoAccion(modulo, accion) {
-    if (!sesionActual || !usuarioEstaActivo(sesionActual)) return false;
-    if (esAdministrador()) return true;
-    const permisos = normalizarPermisos(sesionActual.permisos);
-    return Boolean(permisos[`${modulo}_${accion}`] || permisos[modulo]);
-}
-function construirPermisosCRUD() {
-    const cont=document.getElementById('permisos-usuario'); if(!cont) return;
-    cont.innerHTML=`<div class="col-12"><div class="table-responsive border rounded-4 bg-white shadow-sm"><table class="table align-middle mb-0 text-center"><thead class="table-light"><tr><th class="text-start">Módulo</th>${CRUD_ACCIONES.map(a=>`<th>${CRUD_ETIQUETAS[a]}</th>`).join('')}</tr></thead><tbody>${CRUD_MODULOS.map(m=>`<tr><td class="text-start fw-bold">${CRUD_NOMBRES[m]}</td>${CRUD_ACCIONES.map(a=>`<td><div class="form-check form-switch d-inline-flex"><input class="form-check-input permiso-usuario-crud" type="checkbox" data-modulo="${m}" data-accion="${a}" id="permiso-${m}-${a}"></div></td>`).join('')}</tr>`).join('')}</tbody></table></div></div>`;
-}
-function aplicarEstadoPermisosCRUD(usuario=null) {
-    const permisos=normalizarPermisos(usuario?.permisos);
-    document.querySelectorAll('.permiso-usuario-crud').forEach(c=>{
-        const m=c.dataset.modulo, a=c.dataset.accion;
-        const soloAdmin = (m==='usuarios') || (m==='movimientos' && a!=='read') || (m==='existencias' && a!=='read') || (m==='kardex' && a!=='read');
-        c.checked=Boolean(permisos[`${m}_${a}`]||permisos[m]||usuario?.es_admin);
-        c.disabled=Boolean(usuario?.es_admin||usuario?.usuario==='admin'||soloAdmin);
-    });
-}
-
-function primerModuloPermitido() {
-    return Object.keys(PERMISO_POR_MODULO)
-        .find(modulo => modulo !== 'panel' && tienePermiso(PERMISO_POR_MODULO[modulo])) || 'panel';
-}
+function primerModuloPermitido() { return Object.keys(PERMISO_POR_MODULO).find(modulo => tienePermiso(PERMISO_POR_MODULO[modulo])) || 'panel'; }
 function exigirPermiso(permiso, mensaje = 'No tienes permiso para realizar esta operación.') {
     if (!sesionActual) { abrirModalLogin(); return false; }
     if (!tienePermiso(permiso)) { alert(mensaje); return false; }
     return true;
 }
-
-function exigirPermisoAccion(modulo, accion) { return tienePermisoAccion(modulo, accion) ? true : (alert('No tienes permiso para realizar esta operación.'), false); }
 
 function aplicarConfiguracionEnInterfaz(configuracion) {
     configSis = { ...configSis, ...(configuracion || {}) };
@@ -274,12 +239,10 @@ function actualizarSesionEnInterfaz() {
 
 function aplicarPermisosInterfaz() {
     document.querySelectorAll('[data-permiso]').forEach(elemento => {
-        const permiso = elemento.dataset.permiso;
-        const panelVisible = permiso === 'panel' && Boolean(sesionActual && usuarioEstaActivo(sesionActual));
-        elemento.classList.toggle('d-none', !panelVisible && !tienePermiso(permiso));
+        elemento.classList.toggle('d-none', !tienePermiso(elemento.dataset.permiso));
     });
-    document.querySelectorAll('[data-crud-modulo]').forEach(elemento => {
-        elemento.classList.toggle('d-none', !tienePermisoAccion(elemento.dataset.crudModulo, elemento.dataset.crudAccion));
+    document.querySelectorAll('[data-permiso-accion]').forEach(elemento => {
+        elemento.classList.toggle('d-none', !tienePermiso(elemento.dataset.permisoAccion));
     });
 
     const grupos = {
@@ -309,47 +272,10 @@ function cerrarModalLogin() {
 }
 
 function normalizarSesion(respuesta) {
-    if (!respuesta || respuesta.autenticado === false || respuesta.authenticated === false) {
-        return null;
-    }
-
-    // El backend actual devuelve directamente el objeto de sesión.
-    // No debemos confundir respuesta.usuario (el nombre de usuario)
-    // con un objeto de sesión.
-    const sesion = (
-        respuesta.session &&
-        typeof respuesta.session === 'object'
-    )
-        ? respuesta.session
-        : respuesta;
-
-    const usuario = sesion.usuario || sesion.username;
-
-    if (!sesion.id && !usuario) {
-        return null;
-    }
-
-    return {
-        ...sesion,
-        usuario: usuario || '',
-        nombre: sesion.nombre || usuario || '',
-        activo: usuario === 'admin'
-            ? true
-            : (
-                sesion.activo === true ||
-                sesion.activo === 1 ||
-                sesion.activo === '1' ||
-                String(sesion.estado || '').toUpperCase() === 'ACTIVO'
-            ),
-        es_admin: usuario === 'admin'
-            ? true
-            : Boolean(
-                sesion.es_admin ||
-                sesion.rol === 'ADMIN' ||
-                sesion.rol === 'ADMINISTRADOR'
-            ),
-        permisos: normalizarPermisos(sesion.permisos)
-    };
+    const usuario = respuesta?.usuario || respuesta?.session || respuesta;
+    if (!usuario || respuesta?.autenticado === false || respuesta?.authenticated === false) return null;
+    if (!(usuario.id || usuario.usuario || usuario.username)) return null;
+    return { ...usuario, permisos: normalizarPermisos(usuario.permisos) };
 }
 
 async function cargarSesionActual() {
@@ -575,11 +501,7 @@ async function cargarDataTotal() {
 }
 
 function usuarioEstaActivo(usuario) {
-    if (usuario?.usuario === 'admin') return true;
-    return usuario?.activo === true ||
-           usuario?.activo === 1 ||
-           usuario?.activo === '1' ||
-           String(usuario?.estado || '').toUpperCase() === 'ACTIVO';
+    return usuario?.activo === true || usuario?.activo === 1 || usuario?.activo === '1' || String(usuario?.estado || '').toUpperCase() === 'ACTIVO';
 }
 
 function permisosDeUsuario(usuario) {
@@ -602,7 +524,7 @@ function renderTablaUsuarios() {
 
     cuerpo.innerHTML = usuarios.map(usuario => {
         const permisos = permisosDeUsuario(usuario);
-        const esAdmin = Boolean(usuario.es_admin || usuario.usuario === 'admin' || usuario.rol === 'ADMIN' || usuario.rol === 'ADMINISTRADOR');
+        const esAdmin = Boolean(usuario.es_admin || usuario.rol === 'ADMIN' || usuario.rol === 'ADMINISTRADOR');
         const activo = usuarioEstaActivo(usuario);
         const datosCodificados = encodeURIComponent(JSON.stringify(usuario));
         const puedeEliminar = !usuario.protegido && String(usuario.id) !== String(sesionActual?.id);
@@ -610,7 +532,7 @@ function renderTablaUsuarios() {
             <td class="fw-bold text-start">${escapeHTML(usuario.nombre || '-')}</td>
             <td><span class="badge bg-light text-dark border">${escapeHTML(usuario.usuario || '-')}</span></td>
             <td><span class="badge ${esAdmin ? 'bg-theme text-white' : 'bg-light text-dark border'}">${esAdmin ? 'Administrador' : 'Personalizado'}</span></td>
-            <td><span class="badge bg-theme-light text-theme-solid">${esAdmin ? 'Todos los módulos' : `${CRUD_MODULOS.reduce((n,m)=>n+CRUD_ACCIONES.filter(a=>normalizarPermisos(usuario.permisos)[`${m}_${a}`]).length,0)} permisos CRUD`}</span></td>
+            <td><span class="badge bg-theme-light text-theme-solid">${esAdmin ? 'Todos los módulos' : `${permisos.length} módulo${permisos.length === 1 ? '' : 's'}`}</span></td>
             <td><span class="badge ${activo ? 'bg-success' : 'bg-secondary'}">${activo ? 'Activo' : 'Inactivo'}</span></td>
             <td class="text-nowrap"><button class="btn-action btn-edit me-1" type="button" onclick="editarUsuario('${datosCodificados}')" title="Editar usuario"><i class="fa-solid fa-pen"></i></button>${puedeEliminar ? `<button class="btn-action btn-delete" type="button" onclick="eliminarUsuario(${Number(usuario.id)})" title="Eliminar usuario"><i class="fa-solid fa-trash"></i></button>` : ''}</td>
         </tr>`;
@@ -625,9 +547,6 @@ function restablecerFormularioUsuario() {
     document.getElementById('usuario-id').value = '';
     document.getElementById('usuario-activo').checked = true;
     document.querySelectorAll('.permiso-usuario').forEach(control => { control.checked = false; });
-    document.querySelectorAll('.permiso-usuario-crud').forEach(control => { control.checked = false; control.disabled = false; });
-    document.getElementById('usuario-es-admin').disabled = false;
-    document.getElementById('usuario-activo').disabled = false;
     document.getElementById('titulo-form-usuario').innerText = 'Nuevo usuario';
     document.getElementById('texto-btn-usuario').innerText = 'Guardar usuario';
     document.getElementById('btn-cancelar-usuario').classList.add('d-none');
@@ -636,7 +555,7 @@ function restablecerFormularioUsuario() {
 function cancelarEdicionUsuario() { restablecerFormularioUsuario(); }
 
 function editarUsuario(datosCodificados) {
-    if (!esAdministrador()) return alert('Solo un administrador puede administrar usuarios.');
+    if (!tienePermiso('usuarios')) return alert('No tienes permiso para administrar usuarios.');
     try {
         const usuario = JSON.parse(decodeURIComponent(datosCodificados));
         restablecerFormularioUsuario();
@@ -647,13 +566,6 @@ function editarUsuario(datosCodificados) {
         document.getElementById('usuario-es-admin').checked = Boolean(usuario.es_admin || usuario.rol === 'ADMIN' || usuario.rol === 'ADMINISTRADOR');
         const permisos = normalizarPermisos(usuario.permisos);
         document.querySelectorAll('.permiso-usuario').forEach(control => { control.checked = Boolean(permisos[control.value]); });
-        aplicarEstadoPermisosCRUD(usuario);
-        const esRaiz = usuario.usuario === 'admin';
-        if (esRaiz) { alert('La cuenta raíz admin es inmutable desde este módulo.'); return; }
-        document.getElementById('usuario-es-admin').disabled = esRaiz;
-        document.getElementById('usuario-activo').disabled = esRaiz;
-        document.getElementById('usuario-nombre').readOnly = esRaiz;
-        document.getElementById('usuario-usuario').readOnly = esRaiz;
         document.getElementById('titulo-form-usuario').innerText = `Editar: ${usuario.nombre || usuario.usuario}`;
         document.getElementById('texto-btn-usuario').innerText = 'Guardar cambios';
         document.getElementById('btn-cancelar-usuario').classList.remove('d-none');
@@ -665,14 +577,13 @@ function editarUsuario(datosCodificados) {
 
 async function guardarUsuario(evento) {
     evento.preventDefault();
-    if (!esAdministrador()) return alert('Solo un administrador puede administrar usuarios.');
+    if (!tienePermiso('usuarios')) return alert('No tienes permiso para administrar usuarios.');
     const id = document.getElementById('usuario-id').value;
     const nombre = document.getElementById('usuario-nombre').value.trim();
     const usuario = document.getElementById('usuario-usuario').value.trim();
     const contrasena = document.getElementById('usuario-contrasena').value;
     const confirmar = document.getElementById('usuario-confirmar-contrasena').value;
     const permisos = [...document.querySelectorAll('.permiso-usuario:checked')].map(control => control.value);
-    document.querySelectorAll('.permiso-usuario-crud:checked').forEach(control => permisos.push(`${control.dataset.modulo}_${control.dataset.accion}`));
     const boton = evento.submitter || document.querySelector('#form-usuario button[type="submit"]');
 
     if (!nombre || !usuario) return alert('Completa el nombre y el usuario.');
@@ -702,7 +613,7 @@ async function guardarUsuario(evento) {
 }
 
 async function eliminarUsuario(id) {
-    if (!esAdministrador()) return alert('Solo un administrador puede administrar usuarios.');
+    if (!tienePermiso('usuarios')) return alert('No tienes permiso para administrar usuarios.');
     if (String(id) === String(sesionActual?.id)) return alert('No puedes eliminar tu propia sesión.');
     const usuario = dataGlobal.usuarios.find(item => String(item.id) === String(id));
     const nombre = usuario?.nombre || usuario?.usuario || 'seleccionado';
@@ -724,7 +635,7 @@ function renderTablaTasas() {
     if(!tb) return;
     tb.innerHTML = '';
     dataGlobal.tasas.forEach(t => {
-        let btnAcc = `${tienePermisoAccion('parametros','update') ? `<button class="btn-action btn-edit me-1" onclick="llenarModalEditar('tasas', '${encodeURIComponent(JSON.stringify(t))}')"><i class="fa-solid fa-pen"></i></button>` : ''}${tienePermisoAccion('parametros','delete') ? `<button class="btn-action btn-delete" onclick="eliminarRegistro('tasas', ${t.id})"><i class="fa-solid fa-trash"></i></button>` : ''}`;
+        let btnAcc = `<button class="btn-action btn-edit me-1" onclick="llenarModalEditar('tasas', '${encodeURIComponent(JSON.stringify(t))}')"><i class="fa-solid fa-pen"></i></button><button class="btn-action btn-delete" onclick="eliminarRegistro('tasas', ${t.id})"><i class="fa-solid fa-trash"></i></button>`;
         tb.innerHTML += `<tr><td>${t.fecha} <br> <small class="text-muted">${t.hora}</small></td><td class="fw-bold">Bs ${parseFloat(t.dolar_bcv||0).toFixed(2)}</td><td class="fw-bold text-theme-solid">Bs ${parseFloat(t.euro_bcv||0).toFixed(2)}</td><td class="fw-bold text-warning">Bs ${parseFloat(t.binance||0).toFixed(2)}</td><td class="text-muted">Bs ${parseFloat(t.bybit||0).toFixed(2)}</td><td class="text-muted">Bs ${parseFloat(t.dolar_promedio||0).toFixed(2)}</td><td class="text-muted">Bs ${parseFloat(t.zelle||0).toFixed(2)}</td><td class="text-muted">Bs ${parseFloat(t.paypal||0).toFixed(2)}</td><td class="fw-bolder ${(t.brecha||0) > 0 ? 'text-danger':'text-success'}">${((t.brecha||0)*100).toFixed(2)}%</td><td>${btnAcc}</td></tr>`;
     });
 }
@@ -735,7 +646,7 @@ function cargarCoberturas() {
     tb.innerHTML = '';
     dataGlobal.coberturas.forEach(c => {
         const datos = encodeURIComponent(JSON.stringify(c));
-        const acciones = `${tienePermisoAccion('parametros','update') ? `<button class="btn-action btn-edit me-1" title="Editar cobertura" onclick="llenarModalEditar('coberturas', '${datos}')"><i class="fa-solid fa-pen"></i></button>` : ''}${tienePermisoAccion('parametros','delete') ? `<button class="btn-action btn-delete" title="Eliminar cobertura" onclick="eliminarRegistro('coberturas', ${c.id})"><i class="fa-solid fa-trash"></i></button>` : ''}`;
+        const acciones = `<button class="btn-action btn-edit me-1" title="Editar cobertura" onclick="llenarModalEditar('coberturas', '${datos}')"><i class="fa-solid fa-pen"></i></button><button class="btn-action btn-delete" title="Eliminar cobertura" onclick="eliminarRegistro('coberturas', ${c.id})"><i class="fa-solid fa-trash"></i></button>`;
         tb.innerHTML += `<tr><td>${c.fecha_registro}</td><td class="fw-bold">${c.rango_evaluado}</td><td>${c.fecha_pico_maximo}</td><td class="text-danger fw-bolder">${(c.porcentaje_cobertura*100).toFixed(2)}%</td><td class="text-success fw-bold">${c.factor_proteccion}</td><td><span class="badge bg-light text-dark border">${c.registrado_por}</span></td><td><span class="badge ${c.estado==='ACTIVO'?'bg-success':'bg-secondary'}">${c.estado}</span></td><td>${acciones}</td></tr>`;
     });
 }
@@ -892,53 +803,27 @@ function mostrarNotificaciones() {
 }
 
 function showModule(mId, refrescar = true) {
-    if (!sesionActual) {
-        abrirModalLogin();
-        return;
-    }
-
-    // El Panel principal es la puerta de entrada al sistema.
-    // No requiere un permiso CRUD específico.
     const permiso = PERMISO_POR_MODULO[mId] || mId;
+    if (!sesionActual) { abrirModalLogin(); return; }
+    if (!tienePermiso(permiso)) return alert('No tienes permiso para acceder a este módulo.');
+    if (refrescar && ['panel', 'existencias', 'kardex', 'historial_ventas', 'parametros', 'usuarios'].includes(mId)) cargarDataTotal();
+    if (mId === 'lista_precios') cargarListaPreciosDinamica();
 
-    if (mId !== 'panel' && !tienePermiso(permiso)) {
-        return alert('No tienes permiso para acceder a este módulo.');
-    }
-
-    if (
-        refrescar &&
-        ['panel', 'existencias', 'kardex', 'historial_ventas', 'parametros', 'usuarios'].includes(mId)
-    ) {
-        cargarDataTotal();
-    }
-
-    if (mId === 'lista_precios') {
-        cargarListaPreciosDinamica();
-    }
-
-    document.querySelectorAll('.modulo-vista').forEach(elemento => {
-        elemento.classList.add('d-none', 'animate-fade-up');
-        elemento.classList.remove('active');
-    });
-
-    document.querySelectorAll('.nav-link').forEach(elemento => {
-        elemento.classList.remove('active');
-    });
+    document.querySelectorAll('.modulo-vista').forEach(elemento => { elemento.classList.add('d-none', 'animate-fade-up'); elemento.classList.remove('active'); });
+    document.querySelectorAll('.nav-link').forEach(elemento => elemento.classList.remove('active'));
 
     const vista = document.getElementById(`modulo-${mId}`);
-
     if (vista) {
         vista.classList.remove('d-none');
         void vista.offsetWidth;
         vista.classList.add('active');
     }
-
     document.querySelector(`.nav-link[data-modulo="${mId}"]`)?.classList.add('active');
 }
 
 function abrirModal(m) {
-    const permiso = m === 'tasas' ? 'parametros' : (m === 'coberturas' ? 'parametros' : m);
-    if (!exigirPermisoAccion(permiso, 'create')) return;
+    const permiso = m === 'tasas' ? 'agregar_tasa' : m;
+    if (!tienePermiso(permiso)) return alert('No tienes permiso para realizar esta operación.');
     if (m === 'productos') {
         if (dataGlobal.categorias.length === 0) { if(confirm("¡Falta Categoría!\n¿Crear una ahora?")) abrirModal('categorias'); return; }
         if (dataGlobal.proveedores.length === 0) { if(confirm("¡Falta Proveedor!\n¿Crear uno ahora?")) abrirModal('proveedores'); return; }
@@ -1091,12 +976,6 @@ window.abrirDetalleExistencia = async function(prodId) {
 }
 
 
-function botonesCRUD(m,dataStr,id){
-    const e=tienePermisoAccion(m,'update')?`<button class="btn-action btn-edit me-1" onclick="llenarModalEditar('${m}', '${dataStr}')" title="Editar"><i class="fa-solid fa-pen"></i></button>`:'';
-    const d=tienePermisoAccion(m,'delete')?`<button class="btn-action btn-delete" onclick="eliminarRegistro('${m}', ${id})" title="Eliminar"><i class="fa-solid fa-trash"></i></button>`:'';
-    return e+d;
-}
-
 function renderTabla(m) {
     if(m === 'ventas' || m === 'parametros' || m === 'lista_precios' || m === 'reportes') return;
          
@@ -1114,7 +993,7 @@ function renderTabla(m) {
          
     most.forEach((i, idx) => {
         let html = ''; const dly = idx * 0.05; const dataStr = encodeURIComponent(JSON.stringify(i));
-        const btnAcc = botonesCRUD(m, dataStr, i.id);
+        const btnAcc = `<button class="btn-action btn-edit me-1" onclick="llenarModalEditar('${m}', '${dataStr}')"><i class="fa-solid fa-pen"></i></button><button class="btn-action btn-delete" onclick="eliminarRegistro('${m}', ${i.id})"><i class="fa-solid fa-trash"></i></button>`;
                  
         if(m === 'clientes') {
             const isPendiente = i.documento === 'PENDIENTE' || i.documento === '';
@@ -1140,7 +1019,7 @@ function renderTabla(m) {
                 <td class="text-danger fw-bolder">${i.stock_devoluciones}</td>
                 <td class="fw-bold">${formatMoney(i.costo_unit)}</td>
                 <td class="fw-bold text-theme-solid">${formatMoney(i.total_costo)}</td>
-                <td class="text-nowrap"><button class="btn btn-sm btn-info text-white shadow-sm bounce-hover rounded-circle me-1" onclick="abrirDetalleExistencia(${i.id})" title="Ver detalle"><i class="fa-solid fa-eye"></i></button>${esSuperAdmin() ? `<button class="btn btn-sm btn-warning rounded-circle shadow-sm" onclick="abrirEditorCargaDesdeExistencia(${i.id})" title="Corregir carga"><i class="fa-solid fa-pen"></i></button>` : ''}</td>
+                <td><button class="btn btn-sm btn-info text-white shadow-sm bounce-hover rounded-circle" onclick="abrirDetalleExistencia(${i.id})"><i class="fa-solid fa-eye"></i></button></td>
             </tr>`;
         }
         else if(m === 'kardex') {
@@ -1158,10 +1037,7 @@ function renderTabla(m) {
             if (txtDetalle === "") txtDetalle = "Sin detalles adicionales.";
                          
             let htmlDetalle = `<button class="btn btn-sm btn-theme rounded-pill px-3 py-1 fw-bold fs-7 shadow-sm bounce-hover" onclick="mostrarInfoModal('Detalles de Operación', '${txtDetalle.replace(/'/g, "\\'")}')">Ver más</button>`;
-            const estadoMov=i.anulado?'<span class="badge bg-secondary ms-1">ANULADO</span>':'';
-            let accionesK='';
-            if(esSuperAdmin()&&!i.anulado){ if(['Inventario Inicial','Compra'].includes(i.tipo)) accionesK+=`<button class="btn-action btn-edit me-1" onclick="abrirEditorCargaKardex(${i.id})" title="Editar carga y generar ajuste administrativo"><i class="fa-solid fa-pen"></i></button>`; accionesK+=`<button class="btn-action btn-delete" onclick="anularMovimientoKardex(${i.id})" title="Anular / revertir movimiento"><i class="fa-solid fa-rotate-left"></i></button>`;}
-            html = `<tr><td class="fw-bold">${i.consecutivo}${estadoMov}</td><td class="small text-muted fw-bold">${i.fecha_registro}</td><td><span class="badge ${tipoBadge}">${i.tipo}</span></td><td class="fw-bold text-theme-solid text-truncate" style="max-width:150px;">${i.producto_nombre}</td><td class="fw-bolder fs-6">${i.cantidad}</td><td class="fw-bold">${formatMoney(i.costo_unitario)}</td><td><span class="badge bg-light text-dark border">${i.registrado_por}</span></td><td>${htmlDetalle}</td><td>${accionesK}</td></tr>`;
+            html = `<tr><td class="fw-bold">${i.consecutivo}</td><td class="small text-muted fw-bold">${i.fecha_registro}</td><td><span class="badge ${tipoBadge}">${i.tipo}</span></td><td class="fw-bold text-theme-solid text-truncate" style="max-width:150px;">${i.producto_nombre}</td><td class="fw-bolder fs-6">${i.cantidad}</td><td class="fw-bold">${formatMoney(i.costo_unitario)}</td><td><span class="badge bg-light text-dark border">${i.registrado_por}</span></td><td>${htmlDetalle}</td></tr>`;
         }
         else if(m === 'historial_ventas') {
             let bC = i.estado.includes('DEVUELTO') ? 'bg-danger' : 'bg-success';
@@ -1176,7 +1052,7 @@ function renderTabla(m) {
                     ncBtn = `<button class="btn-action bg-danger text-white me-1 shadow-sm" style="border:none; width: 34px; height: 34px; border-radius: 6px;" onclick="llenarYMostrarModalNC('${nc.consecutivo}')" title="Descargar Nota de Crédito"><i class="fa-solid fa-file-invoice"></i></button>`;
                 }
             }
-            const btnVenta = `<button class="btn-action btn-edit me-1 text-primary shadow-sm" onclick="verPreviewNota('${i.consecutivo}', ${i.id})" title="Ver PDF Factura Original"><i class="fa-solid fa-file-pdf"></i></button>${ncBtn}${tienePermisoAccion('ventas','delete') ? `<button class="btn-action btn-delete text-danger shadow-sm" onclick="eliminarRegistro('ventas', ${i.id})" title="Anular"><i class="fa-solid fa-rotate-left"></i></button>` : ''}`;
+            const btnVenta = `<button class="btn-action btn-edit me-1 text-primary shadow-sm" onclick="verPreviewNota('${i.consecutivo}', ${i.id})" title="Ver PDF Factura Original"><i class="fa-solid fa-file-pdf"></i></button>${ncBtn}<button class="btn-action btn-delete text-danger shadow-sm" onclick="eliminarRegistro('ventas', ${i.id})" title="Eliminar"><i class="fa-solid fa-trash"></i></button>`;
             
             html = `<tr><td class="fw-bold">${i.consecutivo} ${badgeSemaforo}</td><td class="small text-muted fw-bold">${i.fecha_registro}</td><td class="fw-bold text-theme-solid">${i.cliente_nombre||'-'}</td><td class="fw-bold text-muted">${i.cliente_telefono||'-'}</td><td class="fw-bolder fs-5 text-theme-solid">€ ${parseFloat(i.total_eur).toFixed(2)}</td><td><span class="badge bg-warning text-dark fw-bold">Asociada</span></td><td>${btnVenta}</td></tr>`;
         }
@@ -1200,8 +1076,7 @@ function llenarSelectores() {
 }
 
 function llenarModalEditar(m, encodedStr) {
-    const moduloPermiso = ['tasas','coberturas'].includes(m) ? 'parametros' : m;
-    if (!exigirPermisoAccion(moduloPermiso,'update')) return;
+    if (!exigirPermiso(['tasas', 'coberturas'].includes(m) ? 'parametros' : m)) return;
     const d = JSON.parse(decodeURIComponent(encodedStr));
     document.getElementById(`id-${m}`).value = d.id;
     document.getElementById(`titulo-modal-${m}`).innerText = 'Editar Registro';
@@ -1248,9 +1123,8 @@ function llenarModalEditar(m, encodedStr) {
 async function guardarFormulario(e, m) {
     e.preventDefault();
     const id = document.getElementById(`id-${m}`).value;
-    const moduloPermiso = m === 'tasas' || m === 'coberturas' ? 'parametros' : m;
-    const permitido = (m === 'tasas' && !id) ? (tienePermiso('agregar_tasa') || tienePermisoAccion('parametros','create')) : tienePermisoAccion(moduloPermiso, id ? 'update' : 'create');
-    if (!permitido) return alert('No tienes permiso para realizar esta operación.');
+    const permiso = m === 'tasas' ? (id ? 'parametros' : 'agregar_tasa') : (m === 'coberturas' ? 'parametros' : m);
+    if (!exigirPermiso(permiso)) return;
     let payload = {};
          
     if(m === 'clientes') payload = { documento: document.getElementById('c_doc').value, nombre: document.getElementById('c_nom').value, telefono: document.getElementById('c_cod').value + document.getElementById('c_tel').value, correo: document.getElementById('c_cor').value, pais: document.getElementById('c_pais').value, estado: document.getElementById('c_est').value, municipio: document.getElementById('c_mun').value, direccion_entrega: document.getElementById('c_dir_ent').value, punto_referencia: document.getElementById('c_ref').value, coordenadas: document.getElementById('c_coo').value, tipo_envio: document.getElementById('c_tipo_env').value };
@@ -1280,8 +1154,8 @@ async function guardarFormulario(e, m) {
 }
 
 function eliminarRegistro(m, id) {
-    const moduloPermiso = ['tasas', 'coberturas'].includes(m) ? 'parametros' : (m === 'ventas' ? 'historial_ventas' : m);
-    if (!exigirPermisoAccion(moduloPermiso, 'delete')) return;
+    const permiso = ['tasas', 'coberturas'].includes(m) ? 'parametros' : (m === 'ventas' ? 'historial_ventas' : m);
+    if (!exigirPermiso(permiso)) return;
     if (m === 'tasas') {
         idTasaPendienteBorrar = id;
         new bootstrap.Modal(document.getElementById('modalConfirmarBorrarTasa')).show();
@@ -1353,7 +1227,7 @@ async function actualizarCamposMovimiento() {
 
 async function guardarMovimiento(e) {
     e.preventDefault();
-    if (!esSuperAdmin()) return alert('Solo la cuenta raíz admin puede registrar movimientos manuales de inventario.');
+    if (!exigirPermiso('movimientos')) return;
     const t = document.getElementById('mov_tipo').value;
     let p = { producto_id: document.getElementById('mov_prod').value, tipo: t, cantidad: document.getElementById('mov_cant').value };
          
@@ -1378,29 +1252,6 @@ async function guardarMovimiento(e) {
     if(!res.ok) { alert("Error al registrar movimiento."); return; }
     if(t === 'Inventario Inicial') { alert("Guardado."); document.getElementById('mov_doc').value = ''; document.getElementById('mov_cant').value = ''; cargarDataTotal(); }
     else { bootstrap.Modal.getInstance(document.getElementById('modalMovimiento')).hide(); cargarDataTotal(); }
-}
-
-function abrirEditorCargaKardex(id){
-    if(!esSuperAdmin()) return alert('Solo admin puede corregir cargas.');
-    const mov=dataGlobal.kardex.find(x=>Number(x.id)===Number(id)); if(!mov) return alert('Movimiento no encontrado.');
-    const ajustes=dataGlobal.kardex.filter(x=>Number(x.movimiento_origen_id)===Number(mov.id)&&x.tipo==='Ajuste administrativo'&&!x.anulado);
-    let cantidadActual=Number(mov.cantidad||0), costoActual=Number(mov.costo_unitario||0);
-    ajustes.forEach(a=>{ if(a.tipo_ajuste==='CORRECCION_ENTRADA') cantidadActual+=Number(a.cantidad||0); else if(a.tipo_ajuste==='CORRECCION_SALIDA') cantidadActual-=Number(a.cantidad||0); costoActual=Number(a.costo_unitario||costoActual); });
-    const cantidad=prompt(`Nueva cantidad efectiva para ${mov.consecutivo}:`,cantidadActual); if(cantidad===null) return;
-    const costo=prompt(`Nuevo costo unitario efectivo para ${mov.consecutivo}:`,costoActual); if(costo===null) return;
-    const nCant=Number(cantidad), nCosto=Number(costo); if(!Number.isFinite(nCant)||nCant<=0||!Number.isFinite(nCosto)||nCosto<0) return alert('Valores inválidos.');
-    fetch(`/api/movimientos/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({cantidad:nCant,costo_unitario:nCosto})}).then(async r=>{const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||'No se pudo corregir.'); alert('Corrección aplicada y registrada como Ajuste administrativo.'); cargarDataTotal();}).catch(e=>alert(e.message));
-}
-function abrirEditorCargaDesdeExistencia(productoId){
-    if(!esSuperAdmin()) return;
-    const cargas=dataGlobal.kardex.filter(x=>Number(x.producto_id)===Number(productoId)&&['Inventario Inicial','Compra'].includes(x.tipo)&&!x.anulado);
-    if(!cargas.length) return alert('No hay cargas editables para este producto.');
-    const html='<p class="small text-muted">Selecciona la carga exacta que deseas corregir. El movimiento original se conserva.</p>'+cargas.map(x=>`<button class="btn btn-light border rounded-pill w-100 text-start mb-2" onclick="bootstrap.Modal.getInstance(document.getElementById('modalVerMas')).hide(); abrirEditorCargaKardex(${x.id})"><strong>${escapeHTML(x.consecutivo)}</strong> · ${escapeHTML(x.tipo)} · ${Number(x.cantidad||0)} · ${formatMoney(x.costo_unitario)}</button>`).join('');
-    mostrarInfoModal('Seleccionar carga para corregir',html);
-}
-async function anularMovimientoKardex(id){
-    if(!esSuperAdmin()) return alert('Solo admin puede anular movimientos.'); if(!confirm('¿Anular este movimiento? Quedará visible como ANULADO y el stock se recalculará.')) return;
-    const r=await fetch(`/api/movimientos/${id}/anular`,{method:'POST'}), d=await r.json().catch(()=>({})); if(!r.ok) return alert(d.error||'No se pudo anular.'); cargarDataTotal();
 }
 
 function agregarAlCarrito() {
@@ -1548,7 +1399,7 @@ async function procesarVenta() {
 
 // ---------------- DEVOLUCIONES Y NOTAS DE CRÉDITO ---------------- //
 function abrirModalDevoluciones() {
-    if (!exigirPermisoAccion('historial_ventas','create')) return;
+    if (!exigirPermiso('historial_ventas')) return;
     document.getElementById('dev_buscar_factura').value = '';
     document.getElementById('dev_contenido_nota').classList.add('d-none');
     itemsDevolucionTemporal = [];
