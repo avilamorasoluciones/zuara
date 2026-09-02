@@ -158,7 +158,10 @@ function aplicarEstadoPermisosCRUD(usuario=null) {
     });
 }
 
-function primerModuloPermitido() { return Object.keys(PERMISO_POR_MODULO).find(modulo => tienePermiso(PERMISO_POR_MODULO[modulo])) || 'panel'; }
+function primerModuloPermitido() {
+    return Object.keys(PERMISO_POR_MODULO)
+        .find(modulo => tienePermiso(PERMISO_POR_MODULO[modulo])) || 'panel';
+}
 function exigirPermiso(permiso, mensaje = 'No tienes permiso para realizar esta operación.') {
     if (!sesionActual) { abrirModalLogin(); return false; }
     if (!tienePermiso(permiso)) { alert(mensaje); return false; }
@@ -881,21 +884,47 @@ function mostrarNotificaciones() {
 }
 
 function showModule(mId, refrescar = true) {
-    const permiso = PERMISO_POR_MODULO[mId] || mId;
-    if (!sesionActual) { abrirModalLogin(); return; }
-    if (!tienePermiso(permiso)) return alert('No tienes permiso para acceder a este módulo.');
-    if (refrescar && ['panel', 'existencias', 'kardex', 'historial_ventas', 'parametros', 'usuarios'].includes(mId)) cargarDataTotal();
-    if (mId === 'lista_precios') cargarListaPreciosDinamica();
+    if (!sesionActual) {
+        abrirModalLogin();
+        return;
+    }
 
-    document.querySelectorAll('.modulo-vista').forEach(elemento => { elemento.classList.add('d-none', 'animate-fade-up'); elemento.classList.remove('active'); });
-    document.querySelectorAll('.nav-link').forEach(elemento => elemento.classList.remove('active'));
+    // El Panel principal es la puerta de entrada al sistema.
+    // No requiere un permiso CRUD específico.
+    const permiso = PERMISO_POR_MODULO[mId] || mId;
+
+    if (mId !== 'panel' && !tienePermiso(permiso)) {
+        return alert('No tienes permiso para acceder a este módulo.');
+    }
+
+    if (
+        refrescar &&
+        ['panel', 'existencias', 'kardex', 'historial_ventas', 'parametros', 'usuarios'].includes(mId)
+    ) {
+        cargarDataTotal();
+    }
+
+    if (mId === 'lista_precios') {
+        cargarListaPreciosDinamica();
+    }
+
+    document.querySelectorAll('.modulo-vista').forEach(elemento => {
+        elemento.classList.add('d-none', 'animate-fade-up');
+        elemento.classList.remove('active');
+    });
+
+    document.querySelectorAll('.nav-link').forEach(elemento => {
+        elemento.classList.remove('active');
+    });
 
     const vista = document.getElementById(`modulo-${mId}`);
+
     if (vista) {
         vista.classList.remove('d-none');
         void vista.offsetWidth;
         vista.classList.add('active');
     }
+
     document.querySelector(`.nav-link[data-modulo="${mId}"]`)?.classList.add('active');
 }
 
