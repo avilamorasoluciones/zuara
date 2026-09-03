@@ -1226,7 +1226,7 @@ function abrirModalMovimiento() {
     let dispSelect = '<option value="" disabled selected>Selecciona Producto...</option>';
     dataGlobal.productos.forEach(p => {
         let sd = dataGlobal.existencias.find(e=>e.id===p.id);
-        dispSelect += `<option value="${p.id}">${p.descripcion} (Total Disp Venta: ${sd ? sd.stock_disponible_venta : 0})</option>`;
+        dispSelect += `<option value="${p.id}">[${p.codigo_barras || "SIN CÓDIGO"}] ${p.descripcion} (Total Disp Venta: ${sd ? sd.stock_disponible_venta : 0})</option>`;
     });
          
     document.getElementById('mov_prod').innerHTML = dispSelect;
