@@ -977,23 +977,29 @@ window.abrirDetalleExistencia = async function(prodId) {
 
 
 window.abrirCorreccionExistencia = function(prodId) {
-    if (!esAdministrador()) return alert('No tienes permiso para corregir existencias.');
+    if (!esAdministrador()) return alert('No tienes permiso para editar existencias.');
     const p = dataGlobal.existencias.find(e => e.id === prodId);
-    if (!p || !p.ultima_carga_id) return alert('Este producto no tiene una carga corregible registrada.');
+    if (!p) return;
+    const tieneCarga = Boolean(p.ultima_carga_id);
+    const cantidad = tieneCarga ? Number(p.ultima_carga_cantidad || 0).toFixed(2) : '';
+    const costo = tieneCarga ? Number(p.costo_unit || 0).toFixed(2) : '';
+    const avisoCarga = tieneCarga
+        ? `<div class="alert alert-warning small"><b>Corrección administrativa de carga:</b> la carga histórica no se borra ni se modifica; se agrega un movimiento de ajuste en Kardex.</div>
+           <p class="small text-muted mb-3">Última carga: ${escapeHTML(p.ultima_carga_documento || 'Sin documento')} · ${escapeHTML(p.ultima_carga_fecha || '')}</p>`
+        : `<div class="alert alert-info small"><b>Este producto aún no tiene una carga registrada.</b> Puedes corregir el precio objetivo. La cantidad y el costo estarán disponibles cuando exista una carga.</div>`;
     const detalle = `<div class="text-start">
-        <div class="alert alert-warning small"><b>Ajuste administrativo:</b> la carga histórica no se borra ni se modifica; se agrega un movimiento de ajuste en Kardex.</div>
-        <p class="small text-muted mb-3">Última carga: ${escapeHTML(p.ultima_carga_documento || 'Sin documento')} · ${escapeHTML(p.ultima_carga_fecha || '')}</p>
-        <label class="form-label fw-bold">Cantidad corregida de la última carga</label>
-        <input type="number" min="0" step="0.01" id="corr_cantidad" class="form-control ios-input mb-3" value="${Number(p.ultima_carga_cantidad || 0).toFixed(2)}">
-        <label class="form-label fw-bold">Costo unitario corregido (USD)</label>
-        <input type="number" min="0" step="0.01" id="corr_costo" class="form-control ios-input mb-3" value="${Number(p.costo_unit || 0).toFixed(2)}">
+        ${avisoCarga}
+        <label class="form-label fw-bold">Cantidad de la última carga</label>
+        <input type="number" min="0" step="0.01" id="corr_cantidad" class="form-control ios-input mb-3" value="${cantidad}" ${tieneCarga ? '' : 'disabled'}>
+        <label class="form-label fw-bold">Costo unitario (USD)</label>
+        <input type="number" min="0" step="0.01" id="corr_costo" class="form-control ios-input mb-3" value="${costo}" ${tieneCarga ? '' : 'disabled'}>
         <label class="form-label fw-bold">Precio objetivo (USD)</label>
         <input type="number" min="0" step="0.01" id="corr_precio" class="form-control ios-input mb-3" value="${Number(p.precio_usd || 0).toFixed(2)}">
-        <div class="small text-muted">La cantidad aquí es la cantidad de esa última carga, no el stock total acumulado si existen otras cargas posteriores.</div>
+        ${tieneCarga ? '<div class="small text-muted">La cantidad es la de esa última carga, no el stock total acumulado.</div>' : ''}
     </div>`;
-    mostrarInfoModal('Corrección administrativa — ' + p.descripcion, detalle);
+    mostrarInfoModal('Editar existencias — ' + p.descripcion, detalle);
     const body = document.getElementById('modalVerMas')?.querySelector('.modal-body');
-    if (body) body.insertAdjacentHTML('beforeend', `<div class="d-flex justify-content-end mt-3"><button class="btn btn-warning fw-bold rounded-pill" onclick="guardarCorreccionExistencia(${p.id}, ${p.ultima_carga_id})"><i class="fa-solid fa-shield-halved me-1"></i>Aplicar ajuste</button></div>`);
+    if (body) body.insertAdjacentHTML('beforeend', `<div class="d-flex justify-content-end mt-3"><button class="btn btn-warning fw-bold rounded-pill" onclick="guardarCorreccionExistencia(${p.id}, ${p.ultima_carga_id || 'null'})"><i class="fa-solid fa-shield-halved me-1"></i>${tieneCarga ? 'Aplicar corrección' : 'Guardar cambios'}</button></div>`);
 }
 
 window.guardarCorreccionExistencia = async function(prodId, movimientoId) {
@@ -1051,7 +1057,7 @@ function renderTabla(m) {
                 <td class="text-danger fw-bolder">${i.stock_devoluciones}</td>
                 <td class="fw-bold">${formatMoney(i.costo_unit)}</td>
                 <td class="fw-bold text-theme-solid">${formatMoney(i.total_costo)}</td>
-                <td><button class="btn btn-sm btn-info text-white shadow-sm bounce-hover rounded-circle" title="Ver detalle" onclick="abrirDetalleExistencia(${i.id})"><i class="fa-solid fa-eye"></i></button>${esAdministrador() && i.ultima_carga_id ? `<button class="btn btn-sm btn-warning text-dark shadow-sm bounce-hover rounded-circle ms-1" title="Corregir última carga" onclick="abrirCorreccionExistencia(${i.id})"><i class="fa-solid fa-pen"></i></button>` : ''}</td>
+                <td><button class="btn btn-sm btn-info text-white shadow-sm bounce-hover rounded-circle" title="Ver detalle" onclick="abrirDetalleExistencia(${i.id})"><i class="fa-solid fa-eye"></i></button>${esAdministrador() ? `<button class="btn btn-sm btn-warning text-dark shadow-sm bounce-hover rounded-circle ms-1" title="Editar existencias / precio objetivo" onclick="abrirCorreccionExistencia(${i.id})"><i class="fa-solid fa-pen"></i></button>` : ''}</td>
             </tr>`;
         }
         else if(m === 'kardex') {
@@ -1226,7 +1232,7 @@ function abrirModalMovimiento() {
     let dispSelect = '<option value="" disabled selected>Selecciona Producto...</option>';
     dataGlobal.productos.forEach(p => {
         let sd = dataGlobal.existencias.find(e=>e.id===p.id);
-        dispSelect += `<option value="${p.id}">[${p.codigo_barras || "SIN CÓDIGO"}] ${p.descripcion} (Total Disp Venta: ${sd ? sd.stock_disponible_venta : 0})</option>`;
+        dispSelect += `<option value="${p.id}">${p.descripcion} (Total Disp Venta: ${sd ? sd.stock_disponible_venta : 0})</option>`;
     });
          
     document.getElementById('mov_prod').innerHTML = dispSelect;

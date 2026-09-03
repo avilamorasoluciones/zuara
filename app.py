@@ -327,44 +327,56 @@ def corregir_ultima_carga(producto_id):
     conn = get_db_connection()
     try:
         d = request.json or {}
-        nueva_cantidad = safe_float(d.get('cantidad'))
-        nuevo_costo = safe_float(d.get('costo_unitario'))
+        movimiento_id = safe_int(d.get('movimiento_id'))
         precio_usd = d.get('precio_usd')
-        if nueva_cantidad < 0 or nuevo_costo < 0:
-            return jsonify({'error': 'La cantidad y el costo no pueden ser negativos.'}), 400
-        if precio_usd is not None and precio_usd != '' and safe_float(precio_usd) < 0:
+        precio_actual = safe_float(precio_usd) if precio_usd is not None and precio_usd != '' else None
+        if precio_actual is not None and precio_actual < 0:
             return jsonify({'error': 'El precio objetivo no puede ser negativo.'}), 400
-        carga = conn.execute("""SELECT id, consecutivo, fecha_registro, tipo, producto_id, cantidad, costo_unitario,
+
+        carga = None
+        if movimiento_id:
+            carga = conn.execute("""SELECT id, consecutivo, fecha_registro, tipo, producto_id, cantidad, costo_unitario,
                                        almacen_destino_id, motivo, documento
                                 FROM movimientos
                                 WHERE id = ? AND producto_id = ? AND tipo IN ('Inventario Inicial', 'Compra')
-                                FOR UPDATE""", (safe_int(d.get('movimiento_id')), producto_id)).fetchone()
-        if not carga:
-            return jsonify({'error': 'La carga indicada no existe o no es una carga corregible.'}), 404
-        if not carga['almacen_destino_id']:
-            return jsonify({'error': 'La carga no tiene un almacén destino válido.'}), 400
-        cantidad_anterior = float(carga['cantidad'] or 0)
-        costo_anterior = float(carga['costo_unitario'] or 0)
-        delta = round(nueva_cantidad - cantidad_anterior, 10)
-        precio_actual = safe_float(precio_usd) if precio_usd is not None and precio_usd != '' else None
-        tipo_ajuste = 'Ajuste administrativo - Entrada' if delta >= 0 else 'Ajuste administrativo - Salida'
-        cantidad_ajuste = abs(delta)
-        ult_mov = conn.execute('SELECT id FROM movimientos ORDER BY id DESC LIMIT 1').fetchone()
-        consecutivo = f"MOV-{str((ult_mov[0] + 1) if ult_mov else 1).zfill(5)}"
-        detalle = (f"Corrección administrativa de carga {carga['consecutivo']}: cantidad {cantidad_anterior:g} -> {nueva_cantidad:g}; costo {costo_anterior:.2f} -> {nuevo_costo:.2f}")
-        conn.execute("""INSERT INTO movimientos
-            (consecutivo, fecha_registro, tipo, producto_id, cantidad, costo_unitario,
-             almacen_origen_id, almacen_destino_id, motivo, documento, registrado_por)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-            (consecutivo, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), tipo_ajuste,
-             producto_id, cantidad_ajuste, nuevo_costo,
-             carga['almacen_destino_id'] if delta < 0 else None,
-             carga['almacen_destino_id'] if delta >= 0 else None,
-             detalle, carga['documento'] or carga['consecutivo'], session.get('nombre', 'Sistema')))
+                                FOR UPDATE""", (movimiento_id, producto_id)).fetchone()
+            if not carga:
+                return jsonify({'error': 'La carga indicada no existe o no es una carga corregible.'}), 404
+            nueva_cantidad = safe_float(d.get('cantidad'))
+            nuevo_costo = safe_float(d.get('costo_unitario'))
+            if nueva_cantidad < 0 or nuevo_costo < 0:
+                return jsonify({'error': 'La cantidad y el costo no pueden ser negativos.'}), 400
+            if not carga['almacen_destino_id']:
+                return jsonify({'error': 'La carga no tiene un almacén destino válido.'}), 400
+
+            cantidad_anterior = float(carga['cantidad'] or 0)
+            costo_anterior = float(carga['costo_unitario'] or 0)
+            delta = round(nueva_cantidad - cantidad_anterior, 10)
+            if abs(delta) > 0.0000000001 or abs(nuevo_costo - costo_anterior) > 0.0000001:
+                tipo_ajuste = 'Ajuste administrativo - Entrada' if delta >= 0 else 'Ajuste administrativo - Salida'
+                cantidad_ajuste = abs(delta)
+                ult_mov = conn.execute('SELECT id FROM movimientos ORDER BY id DESC LIMIT 1').fetchone()
+                consecutivo = f"MOV-{str((ult_mov[0] + 1) if ult_mov else 1).zfill(5)}"
+                detalle = (f"Corrección administrativa de carga {carga['consecutivo']}: cantidad {cantidad_anterior:g} -> {nueva_cantidad:g}; "
+                           f"costo {costo_anterior:.2f} -> {nuevo_costo:.2f}")
+                conn.execute("""INSERT INTO movimientos
+                    (consecutivo, fecha_registro, tipo, producto_id, cantidad, costo_unitario,
+                     almacen_origen_id, almacen_destino_id, motivo, documento, registrado_por)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                    (consecutivo, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), tipo_ajuste,
+                     producto_id, cantidad_ajuste, nuevo_costo,
+                     carga['almacen_destino_id'] if delta < 0 else None,
+                     carga['almacen_destino_id'] if delta >= 0 else None,
+                     detalle, carga['documento'] or carga['consecutivo'], session.get('nombre', 'Sistema')))
+        else:
+            if precio_actual is None:
+                return jsonify({'error': 'Este producto no tiene una carga registrada. Solo se puede editar el precio objetivo hasta registrar una carga.'}), 400
+
         if precio_actual is not None:
             conn.execute('UPDATE productos SET precio_usd = ? WHERE id = ?', (precio_actual, producto_id))
         conn.commit()
-        return jsonify({'status': 'ok', 'ajuste': consecutivo, 'delta_cantidad': delta})
+        return jsonify({'status': 'ok', 'ajuste': consecutivo if carga and 'consecutivo' in locals() else None,
+                        'delta_cantidad': delta if carga and 'delta' in locals() else 0})
     except Exception as e:
         conn.conn.rollback()
         return jsonify({'error': str(e)}), 500
