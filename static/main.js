@@ -12,6 +12,7 @@ let notasCreditoClienteActual = [];
 let ncSeleccionadaParaPago = null;
 let sesionActual = null;
 let modalLoginInstancia = null;
+let volverANotaTrasRegistrarTasa = false;
 
 const PERMISOS = [
     'panel', 'ventas', 'historial_ventas', 'clientes', 'proveedores', 'almacenes',
@@ -804,11 +805,33 @@ async function prepararVenta() {
     }
          
     let r = await fetch('/api/lista_precios_data');
+    if (!r.ok) {
+        let errorData = {};
+        try { errorData = await r.json(); } catch (_) {}
+        alert(errorData.error || "No se pudo preparar la Nota de Entrega. Verifica que tengas permiso para crear notas y que las tasas del día estén disponibles.");
+        return;
+    }
     let res = await r.json();
          
-    if(!res.tasas.registrada_hoy) {
-        alert("⚠️ IMPOSIBLE FACTURAR: No se han registrado las tasas oficiales del día de hoy.");
-        showModule('parametros');
+    if(!res.tasas || !res.tasas.registrada_hoy) {
+        if (tienePermiso('agregar_tasa')) {
+            const continuar = confirm(
+                "⚠️ NO SE PUEDE FACTURAR TODAVÍA\n\n" +
+                "No se ha registrado la tasa oficial del día de hoy.\n\n" +
+                "Este usuario tiene el permiso independiente «Agregar tasa», así que puede registrarla sin tener acceso al módulo Parámetros.\n\n" +
+                "¿Quieres registrar la tasa ahora?"
+            );
+            if (continuar) {
+                volverANotaTrasRegistrarTasa = true;
+                abrirModal('tasas');
+            }
+        } else {
+            alert(
+                "⚠️ NO SE PUEDE FACTURAR TODAVÍA\n\n" +
+                "No se ha registrado la tasa oficial del día de hoy.\n\n" +
+                "Este usuario no tiene el permiso independiente «Agregar tasa». Un usuario autorizado debe registrar la tasa del día para poder emitir la Nota de Entrega."
+            );
+        }
         return;
     }
          
@@ -1140,7 +1163,14 @@ async function guardarFormulario(e, m) {
     let res = await fetch(id ? `/api/${m}/${id}` : `/api/${m}`, { method: id ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
     if(!res.ok) { alert("Hubo un error al guardar. Revisa que llenaste todos los campos."); return; }
     bootstrap.Modal.getInstance(document.getElementById(`modal-${m}`)).hide();
-    cargarDataTotal();
+    await cargarDataTotal();
+
+    // Si la tasa se registró desde el flujo de Nota de Entrega, volvemos
+    // automáticamente a la venta para que el usuario pueda continuar.
+    if (m === 'tasas' && volverANotaTrasRegistrarTasa) {
+        volverANotaTrasRegistrarTasa = false;
+        await prepararVenta();
+    }
 }
 
 function eliminarRegistro(m, id) {
@@ -1182,7 +1212,10 @@ function abrirModalMovimiento() {
     let dispSelect = '<option value="" disabled selected>Selecciona Producto...</option>';
     dataGlobal.productos.forEach(p => {
         let sd = dataGlobal.existencias.find(e=>e.id===p.id);
-        dispSelect += `<option value="${p.id}">${p.descripcion} (Total Disp Venta: ${sd ? sd.stock_disponible_venta : 0})</option>`;
+        const codigo = p.codigo_barras || 'SIN CÓDIGO';
+        const descripcion = p.descripcion || 'Producto sin descripción';
+        const disponible = sd ? sd.stock_disponible_venta : 0;
+        dispSelect += `<option value="${p.id}">[${codigo}] ${descripcion} (Total Disp Venta: ${disponible})</option>`;
     });
          
     document.getElementById('mov_prod').innerHTML = dispSelect;
