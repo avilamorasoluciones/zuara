@@ -693,6 +693,54 @@
 </div>
 
 
+<!-- Modal Corrección Administrativa de Existencias -->
+<div class="modal fade" id="modalCorreccionExistencia" tabindex="-1" aria-labelledby="titulo-correccion-existencia" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content ios-modal border-0 shadow-lg">
+            <div class="modal-header theme-bg text-white border-0 py-3 px-4 d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="modal-title fw-bolder mb-0" id="titulo-correccion-existencia">Corrección administrativa</h5>
+                    <small class="opacity-75" id="subtitulo-correccion-existencia">ZUARA APP · Existencias</small>
+                </div>
+                <button type="button" class="btn-close btn-close-white rounded-circle p-2 m-0" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div id="corr-aviso" class="mb-3"></div>
+                <div class="row g-3">
+                    <div class="col-12">
+                        <label class="form-label small fw-bold text-muted">Producto</label>
+                        <div class="corr-producto-box">
+                            <div class="fw-bolder" id="corr-producto"></div>
+                            <div class="small text-muted" id="corr-codigo"></div>
+                        </div>
+                    </div>
+                    <div class="col-12" id="corr-carga-info-wrap">
+                        <label class="form-label small fw-bold text-muted">Última carga corregible</label>
+                        <div class="corr-producto-box small" id="corr-carga-info"></div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label fw-bold" for="corr_cantidad">Cantidad de la carga</label>
+                        <input type="number" min="0" step="0.01" id="corr_cantidad" class="form-control ios-input" inputmode="decimal">
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label fw-bold" for="corr_costo">Costo unitario (USD)</label>
+                        <input type="number" min="0" step="0.01" id="corr_costo" class="form-control ios-input" inputmode="decimal">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-bold" for="corr_precio">Precio objetivo (USD)</label>
+                        <input type="number" min="0" step="0.01" id="corr_precio" class="form-control ios-input" inputmode="decimal">
+                    </div>
+                </div>
+                <div class="small text-muted mt-3" id="corr-ayuda"></div>
+            </div>
+            <div class="modal-footer border-0 px-4 pb-4 pt-0 d-flex flex-column flex-sm-row gap-2">
+                <button type="button" class="btn btn-light border rounded-pill fw-bold px-4 w-100 w-sm-auto" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-theme rounded-pill fw-bold px-4 w-100 w-sm-auto" id="btn-aplicar-correccion" onclick="guardarCorreccionExistencia()"><i class="fa-solid fa-shield-halved me-1"></i>Aplicar corrección</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Modal Devoluciones por Venta -->
 <div class="modal fade" id="modalDevolucionesVenta" tabindex="-1">
     <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">

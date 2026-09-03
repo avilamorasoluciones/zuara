@@ -15,7 +15,9 @@ app.secret_key = os.environ.get('SECRET_KEY', 'super-secret-key-dashboard-2024')
 # --- CONFIGURACIÓN DE SESIONES PARA LA NUBE (RENDER) ---
 app.config['SESSION_COOKIE_SECURE'] = True      # Obligatorio para HTTPS en Render
 app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = 'None'  # Permite que el navegador acepte la cookie
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'       # La app es same-origin; Lax evita pérdidas de sesión por políticas cross-site innecesarias
+app.config['SESSION_COOKIE_PATH'] = '/'
+app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=7)
 
 # --- INICIALIZAR EL POOL GLOBAL DE CONEXIONES ---
 db_pool = None
@@ -209,6 +211,7 @@ def api_login():
                 try: permisos_list = json.loads(row['permisos']) if row['permisos'] else []
                 except: permisos_list = []
                 
+                session.permanent = True
                 session['usuario_id'] = row['id']
                 session['nombre'] = row['nombre']
                 session['usuario'] = row['usuario']
@@ -355,6 +358,14 @@ def corregir_ultima_carga(producto_id):
             cantidad_anterior = float(carga['cantidad'] or 0)
             costo_anterior = float(carga['costo_unitario'] or 0)
             delta = round(nueva_cantidad - cantidad_anterior, 10)
+            if delta < 0:
+                stock_actual = conn.execute("""SELECT COALESCE(SUM(CASE
+                    WHEN tipo IN ('Inventario Inicial', 'Compra', 'Devolución por venta', 'Ajuste administrativo - Entrada') THEN cantidad
+                    WHEN tipo IN ('Venta', 'Descarga por daño/motivo', 'Devolución por compra', 'Ajuste administrativo - Salida') THEN -cantidad
+                    ELSE 0 END), 0) AS stock
+                    FROM movimientos WHERE producto_id = ?""", (producto_id,)).fetchone()['stock'] or 0
+                if abs(delta) > float(stock_actual) + 1e-9:
+                    return jsonify({'error': f'La corrección dejaría el stock físico en negativo. Stock actual: {float(stock_actual):g}; reducción solicitada: {abs(delta):g}.'}), 400
             if abs(delta) > 0.0000000001 or abs(nuevo_costo - costo_anterior) > 0.0000001:
                 tipo_ajuste = 'Ajuste administrativo - Entrada' if delta >= 0 else 'Ajuste administrativo - Salida'
                 cantidad_ajuste = abs(delta)

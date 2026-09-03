@@ -895,41 +895,73 @@ window.abrirCorreccionExistencia = function(prodId) {
     if (!esAdministrador()) return alert('No tienes permiso para editar existencias.');
     const p = dataGlobal.existencias.find(e => e.id === prodId);
     if (!p) return;
+
     const tieneCarga = Boolean(p.ultima_carga_id);
-    const cantidad = tieneCarga ? Number(p.ultima_carga_cantidad || 0).toFixed(2) : '';
-    const costo = tieneCarga ? Number(p.costo_unit || 0).toFixed(2) : '';
-    const avisoCarga = tieneCarga
-        ? `<div class="alert alert-warning small"><b>Corrección administrativa de carga:</b> la carga histórica no se borra ni se modifica; se agrega un movimiento de ajuste en Kardex.</div>
-           <p class="small text-muted mb-3">Última carga: ${escapeHTML(p.ultima_carga_documento || 'Sin documento')} · ${escapeHTML(p.ultima_carga_fecha || '')}</p>`
-        : `<div class="alert alert-info small"><b>Este producto aún no tiene una carga registrada.</b> Puedes corregir el precio objetivo. La cantidad y el costo estarán disponibles cuando exista una carga.</div>`;
-    const detalle = `<div class="text-start">
-        ${avisoCarga}
-        <label class="form-label fw-bold">Cantidad de la última carga</label>
-        <input type="number" min="0" step="0.01" id="corr_cantidad" class="form-control ios-input mb-3" value="${cantidad}" ${tieneCarga ? '' : 'disabled'}>
-        <label class="form-label fw-bold">Costo unitario (USD)</label>
-        <input type="number" min="0" step="0.01" id="corr_costo" class="form-control ios-input mb-3" value="${costo}" ${tieneCarga ? '' : 'disabled'}>
-        <label class="form-label fw-bold">Precio objetivo (USD)</label>
-        <input type="number" min="0" step="0.01" id="corr_precio" class="form-control ios-input mb-3" value="${Number(p.precio_usd || 0).toFixed(2)}">
-        ${tieneCarga ? '<div class="small text-muted">La cantidad es la de esa última carga, no el stock total acumulado.</div>' : ''}
-    </div>`;
-    mostrarInfoModal('Editar existencias — ' + p.descripcion, detalle);
-    const acciones = document.getElementById('modal-ver-mas-acciones');
-    if (acciones) {
-        acciones.innerHTML = `<button type="button" class="btn btn-warning text-dark fw-bold rounded-pill px-4" onclick="guardarCorreccionExistencia(${p.id}, ${p.ultima_carga_id || 'null'})"><i class="fa-solid fa-shield-halved me-1"></i>${tieneCarga ? 'Aplicar corrección' : 'Guardar cambios'}</button>`;
-    }
-}
+    const modal = document.getElementById('modalCorreccionExistencia');
+    if (!modal) return;
 
-window.guardarCorreccionExistencia = async function(prodId, movimientoId) {
+    document.getElementById('titulo-correccion-existencia').innerText = `Corrección administrativa · ${p.descripcion || 'Producto'}`;
+    document.getElementById('corr-producto').innerText = p.descripcion || 'Producto sin descripción';
+    document.getElementById('corr-codigo').innerText = `Código: ${p.codigo_barras || 'SIN CÓDIGO'} · Unidad: ${p.unidad_medida || 'N/A'}`;
+    document.getElementById('corr_cantidad').value = tieneCarga ? Number(p.ultima_carga_cantidad || 0).toFixed(2) : '';
+    document.getElementById('corr_costo').value = tieneCarga ? Number(p.costo_unit || 0).toFixed(2) : '';
+    document.getElementById('corr_precio').value = Number(p.precio_usd || 0).toFixed(2);
+    document.getElementById('corr_cantidad').disabled = !tieneCarga;
+    document.getElementById('corr_costo').disabled = !tieneCarga;
+    document.getElementById('corr-carga-info-wrap').classList.toggle('d-none', !tieneCarga);
+    document.getElementById('corr-carga-info').innerText = tieneCarga
+        ? `${p.ultima_carga_documento || 'Sin documento'} · ${p.ultima_carga_fecha || 'Sin fecha'} · Cantidad original: ${Number(p.ultima_carga_cantidad || 0).toFixed(2)}`
+        : '';
+    document.getElementById('corr-aviso').innerHTML = tieneCarga
+        ? '<div class="alert alert-warning small mb-0"><b>Auditoría:</b> la carga original no se borra ni se modifica. Si cambia cantidad o costo, ZUARA APP registrará un <b>Ajuste administrativo</b> en Kardex y actualizará el stock mediante ese movimiento.</div>'
+        : '<div class="alert alert-info small mb-0"><b>Este producto no tiene una carga registrada.</b> En este caso solo puede corregirse el precio objetivo; cantidad y costo se habilitarán al registrar una carga.</div>';
+    document.getElementById('corr-ayuda').innerText = tieneCarga
+        ? 'La cantidad indicada corresponde exclusivamente a la última carga, no al stock total acumulado. Una disminución se validará contra el stock disponible para evitar existencias negativas.'
+        : 'El precio objetivo no es un movimiento físico y por eso una corrección sin carga no genera entrada/salida.';
+    const boton = document.getElementById('btn-aplicar-correccion');
+    boton.innerHTML = `<i class="fa-solid fa-shield-halved me-1"></i>${tieneCarga ? 'Aplicar corrección' : 'Guardar precio objetivo'}`;
+    boton.dataset.productoId = String(p.id);
+    boton.dataset.movimientoId = tieneCarga ? String(p.ultima_carga_id) : '';
+
+    bootstrap.Modal.getOrCreateInstance(modal).show();
+};
+
+window.guardarCorreccionExistencia = async function() {
     if (!esAdministrador()) return alert('No tienes permiso para realizar esta operación.');
-    const payload = { movimiento_id: movimientoId, cantidad: document.getElementById('corr_cantidad')?.value, costo_unitario: document.getElementById('corr_costo')?.value, precio_usd: document.getElementById('corr_precio')?.value };
-    const r = await fetch(`/api/existencias/${prodId}/corregir`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok) return alert(data.error || 'No se pudo aplicar la corrección.');
-    bootstrap.Modal.getInstance(document.getElementById('modalVerMas'))?.hide();
-    alert(`Ajuste ${data.ajuste} registrado correctamente. Revisa Existencias y Kardex.`);
-    await cargarDataTotal();
-}
+    const boton = document.getElementById('btn-aplicar-correccion');
+    const prodId = Number(boton?.dataset.productoId || 0);
+    const movimientoId = boton?.dataset.movimientoId ? Number(boton.dataset.movimientoId) : null;
+    if (!prodId) return alert('No se pudo identificar el producto.');
 
+    const payload = {
+        movimiento_id: movimientoId,
+        cantidad: document.getElementById('corr_cantidad')?.value,
+        costo_unitario: document.getElementById('corr_costo')?.value,
+        precio_usd: document.getElementById('corr_precio')?.value
+    };
+    boton.disabled = true;
+    boton.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i>Guardando...';
+    try {
+        const r = await fetch(`/api/existencias/${prodId}/corregir`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            credentials: 'same-origin',
+            body: JSON.stringify(payload)
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) return alert(data.error || 'No se pudo aplicar la corrección.');
+        bootstrap.Modal.getInstance(document.getElementById('modalCorreccionExistencia'))?.hide();
+        await cargarDataTotal();
+        alert(data.ajuste ? `Ajuste ${data.ajuste} registrado correctamente. Existencias y Kardex fueron actualizados.` : 'Precio objetivo actualizado correctamente.');
+    } catch (error) {
+        console.error(error);
+        alert('No se pudo completar la corrección por un problema de conexión.');
+    } finally {
+        boton.disabled = false;
+        const tieneCarga = Boolean(movimientoId);
+        boton.innerHTML = `<i class="fa-solid fa-shield-halved me-1"></i>${tieneCarga ? 'Aplicar corrección' : 'Guardar precio objetivo'}`;
+    }
+};
 
 function renderTabla(m) {
     if(m === 'ventas' || m === 'parametros' || m === 'lista_precios' || m === 'reportes') return;
@@ -966,7 +998,7 @@ function renderTabla(m) {
             const alerta = disp <= i.stock_minimo ? 'text-danger fw-bolder fs-5' : 'text-success fw-bolder fs-5';
             html = `<tr>
                 <td class="text-muted">${i.codigo_barras||'-'}</td>
-                <td class="fw-bold text-theme-solid text-start ps-3">${i.descripcion}</td>
+                <td class="fw-bold text-theme-solid text-start ps-3 cell-producto-descripcion">${escapeHTML(i.descripcion || 'Sin descripción')}</td>
                 <td class="fw-bold text-muted">${i.unidad_medida}</td>
                 <td>${i.stock_minimo}</td>
                 <td class="fw-bold text-dark bg-light">${i.stock_fisico_total}</td>
@@ -983,6 +1015,7 @@ function renderTabla(m) {
             else if(['Venta', 'Descarga por daño/motivo', 'Devolución por compra'].includes(i.tipo)) tipoBadge = 'bg-danger';
             else if(i.tipo === 'Traspaso') tipoBadge = 'bg-primary';
             else if(i.tipo === 'Devolución por venta') tipoBadge = 'bg-info text-dark';
+            else if(i.tipo && i.tipo.startsWith('Ajuste administrativo')) tipoBadge = 'bg-warning text-dark';
                          
             let txtDetalle = "";
             if (i.documento) txtDetalle += `<b>Doc/Factura:</b> ${i.documento}<br><br>`;
@@ -992,7 +1025,7 @@ function renderTabla(m) {
             if (txtDetalle === "") txtDetalle = "Sin detalles adicionales.";
                          
             let htmlDetalle = `<button class="btn btn-sm btn-theme rounded-pill px-3 py-1 fw-bold fs-7 shadow-sm bounce-hover" onclick="mostrarInfoModal('Detalles de Operación', '${txtDetalle.replace(/'/g, "\\'")}')">Ver más</button>`;
-            html = `<tr><td class="fw-bold">${i.consecutivo}</td><td class="small text-muted fw-bold">${i.fecha_registro}</td><td><span class="badge ${tipoBadge}">${i.tipo}</span></td><td class="fw-bold text-theme-solid text-truncate" style="max-width:150px;">${i.producto_nombre}</td><td class="fw-bolder fs-6">${i.cantidad}</td><td class="fw-bold">${formatMoney(i.costo_unitario)}</td><td><span class="badge bg-light text-dark border">${i.registrado_por}</span></td><td>${htmlDetalle}</td></tr>`;
+            html = `<tr><td class="fw-bold">${i.consecutivo}</td><td class="small text-muted fw-bold">${i.fecha_registro}</td><td><span class="badge ${tipoBadge}">${i.tipo}</span></td><td class="fw-bold text-theme-solid text-start cell-kardex-producto">${escapeHTML(i.producto_nombre || 'Producto Eliminado')}</td><td class="fw-bolder fs-6">${i.cantidad}</td><td class="fw-bold">${formatMoney(i.costo_unitario)}</td><td><span class="badge bg-light text-dark border">${i.registrado_por}</span></td><td>${htmlDetalle}</td></tr>`;
         }
         else if(m === 'historial_ventas') {
             let bC = i.estado.includes('DEVUELTO') ? 'bg-danger' : 'bg-success';
