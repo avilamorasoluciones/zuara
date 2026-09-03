@@ -122,7 +122,6 @@ def init_db():
 
         # Configuración por defecto
         conn.execute("INSERT INTO configuracion (clave, valor) VALUES ('permitir_descuentos', 'true') ON CONFLICT (clave) DO NOTHING")
-        conn.execute("INSERT INTO configuracion (clave, valor) VALUES ('font_size', '14') ON CONFLICT (clave) DO NOTHING")
         
         # Almacenes Automáticos
         conn.execute("INSERT INTO almacenes (id, nombre, ubicacion, fecha_registro, registrado_por) VALUES (9999, 'Devoluciones por Venta (BLOQUEADO)', 'Sistema Automático', CURRENT_TIMESTAMP, 'Sistema') ON CONFLICT (id) DO NOTHING")
@@ -275,13 +274,17 @@ def api_configuracion():
         if request.method == 'POST':
             if not tiene_permiso_en_sesion('configuracion'):
                 return respuesta_sin_permiso()
-            d = request.json
-            for k, v in d.items(): 
-                conn.execute("UPDATE configuracion SET valor = ? WHERE clave = ?", (str(v), k))
+            d = request.json or {}
+            if set(d.keys()) - {'permitir_descuentos'}:
+                return jsonify({'error': 'La identidad y apariencia de ZUARA APP son fijas y no son editables.'}), 400
+            if 'permitir_descuentos' in d:
+                valor = 'true' if str(d['permitir_descuentos']).lower() == 'true' else 'false'
+                conn.execute("UPDATE configuracion SET valor = ? WHERE clave = 'permitir_descuentos'", (valor,))
             conn.commit()
-            return jsonify({'status': 'ok'})
-        data = dict(conn.execute("SELECT clave, valor FROM configuracion").fetchall())
-        return jsonify(data)
+            fila = conn.execute("SELECT valor FROM configuracion WHERE clave = 'permitir_descuentos'").fetchone()
+            return jsonify({'status': 'ok', 'configuracion': {'permitir_descuentos': fila['valor'] if fila else 'true'}})
+        fila = conn.execute("SELECT valor FROM configuracion WHERE clave = 'permitir_descuentos'").fetchone()
+        return jsonify({'permitir_descuentos': fila['valor'] if fila else 'true'})
     except Exception as e: return jsonify({'error': str(e)}), 500
     finally: conn.close()
 

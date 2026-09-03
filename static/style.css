@@ -2,16 +2,20 @@
 
 :root {
     --ios-bg: #f5f5f7; --ios-card: #ffffff;
-    --theme-color-1: #af52de; --theme-color-2: #5e5ce6;
-    --theme-gradient: linear-gradient(135deg, var(--theme-color-1), var(--theme-color-2));
-    --theme-light: rgba(175, 82, 222, 0.1); --text-main: #1d1d1f;
+    --theme-color-1: #d4af37; --theme-color-2: #090909;
+    --theme-gradient: linear-gradient(135deg, #f6d365 0%, #d4af37 42%, #6f5310 72%, #050505 100%);
+    --theme-light: rgba(212, 175, 55, 0.14); --text-main: #1d1d1f;
 }
 
 body {
     background-color: var(--ios-bg); color: var(--text-main);
     overflow-x: hidden; margin: 0; padding: 0; width: 100vw; height: 100vh;
-    transition: font-family 0.3s ease;
+    transition: none;
 }
+
+/* Evita el parpadeo de la interfaz/login mientras se valida la sesión al recargar. */
+#app-body.app-loading #wrapper, #app-body.app-loading > .modal { visibility: hidden; }
+#app-body.app-loading { background: #090909; }
 
 .text-theme { background: var(--theme-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
 .text-theme-solid { color: var(--theme-color-1) !important; }
@@ -77,11 +81,10 @@ body {
 
 .btn-action { width: 35px; height: 35px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; border: none; transition: 0.2s cubic-bezier(0.2, 0, 0, 1); }
 .btn-action:hover { transform: scale(1.15); }
-.btn-edit { background: rgba(0, 122, 255, 0.1); color: #007aff; }
-.btn-edit:hover { background: #007aff; color: white; }
+.btn-edit { background: rgba(212, 175, 55, 0.14); color: #9a7410; }
+.btn-edit:hover { background: #d4af37; color: #111; }
 .btn-delete { background: rgba(255, 59, 48, 0.1); color: #ff3b30; }
 .btn-delete:hover { background: #ff3b30; color: white; }
-.btn-color { width: 60px; height: 60px; border-radius: 50%; border: 4px solid #fff; cursor: pointer; transition: transform 0.2s; }
 
 .animate-fade { animation: fadeIn 0.8s ease forwards; }
 .animate-fade-up { animation: fadeUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
@@ -101,3 +104,15 @@ body {
         .tasa-badge { padding: 6px 10px; font-size: 0.85em; display: flex; align-items: center; }
         .tasa-badge-custom { padding: 4px 6px; font-size: 0.85em; display: flex; align-items: center; gap: 6px; }
         .reloj-compacto { padding: 6px 12px !important; font-size: 0.85em !important; }
+
+
+/* Identidad fija ZUARA APP: dorado + negro en todo el sistema. */
+.btn-theme, .theme-bg { background: var(--theme-gradient) !important; }
+.text-theme-solid { color: #b8860b !important; }
+.bg-theme-light { background: rgba(212,175,55,0.12) !important; }
+.sidebar-bubble { background: rgba(255,255,255,0.12); }
+.list-group-item.active .sidebar-bubble { color: #b8860b; }
+.title-bubble, .card-bubble { background: rgba(212,175,55,0.12); }
+.ios-input:focus, .ios-input-group:focus-within { border-color: #d4af37; box-shadow: 0 0 0 4px rgba(212,175,55,0.14); }
+.btn-action.btn-edit { background: rgba(212,175,55,0.14); color: #9a7410; }
+.btn-action.btn-edit:hover { background: #d4af37; color: #111; }

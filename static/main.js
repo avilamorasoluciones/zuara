@@ -5,7 +5,7 @@ let carritoVentas = [];
 let tasaActualEur = 0;
 let stockPorAlmacenTemp = [];
 let notificacionesGlobales = {};
-let configSis = { nombre_empresa: 'ZUARA APP', theme_color_1: '#d4af37', theme_color_2: '#1a1a1a', font_family: "'Plus Jakarta Sans', sans-serif", permitir_descuentos: 'true', font_size: '14' };
+let configSis = { permitir_descuentos: 'true' };
 let idTasaPendienteBorrar = null;
 let itemsDevolucionTemporal = [];
 let notasCreditoClienteActual = [];
@@ -138,85 +138,17 @@ function exigirPermiso(permiso, mensaje = 'No tienes permiso para realizar esta 
 }
 
 function aplicarConfiguracionEnInterfaz(configuracion) {
-    configSis = { ...configSis, ...(configuracion || {}) };
-    const nombre = (configSis.nombre_empresa || configSis.company_name || 'ZUARA APP').trim() || 'ZUARA APP';
-    const fuente = configSis.font_family || configSis.app_font || "'Plus Jakarta Sans', sans-serif";
-    const tamanio = String(configSis.font_size || '14');
-    const color1 = configSis.theme_color_1 || configSis.tema_color_1 || '#d4af37';
-    const color2 = configSis.theme_color_2 || configSis.tema_color_2 || '#1a1a1a';
-
-    aplicarTemaCSS(color1, color2);
-    document.title = nombre;
-    document.getElementById('brand-name').innerText = nombre;
-    document.getElementById('login-brand-name').innerText = nombre;
-    document.getElementById('input-nombre-empresa').value = nombre;
-    document.getElementById('app-body').style.fontFamily = fuente;
-    document.getElementById('selector-fuente').value = fuente;
-    document.getElementById('selector-tamano-fuente').value = tamanio;
-    document.documentElement.style.setProperty('--app-font-size', tamanio + 'px');
-    document.getElementById('lbl-tamano-fuente').innerText = tamanio + 'px';
-    document.getElementById('switch-descuentos').checked = String(configSis.permitir_descuentos) === 'true';
+    configSis = { permitir_descuentos: 'true', ...(configuracion || {}) };
     aplicarLogicaDescuentos(String(configSis.permitir_descuentos));
 }
 
 async function cargarConfiguracion() {
     try {
-        const respuesta = await fetch('/api/configuracion');
+        const respuesta = await fetch('/api/configuracion', { cache: 'no-store', credentials: 'same-origin' });
         if (!respuesta.ok) return;
         aplicarConfiguracionEnInterfaz(await respuesta.json());
     } catch (error) {
-        console.error('No se pudo cargar la configuración global.', error);
-    }
-}
-
-function cambiarTema(c1, c2) {
-    configSis.theme_color_1 = c1;
-    configSis.theme_color_2 = c2;
-    aplicarTemaCSS(c1, c2);
-}
-
-function aplicarTemaCSS(c1, c2) {
-    const color1 = /^#[0-9a-f]{3}([0-9a-f]{3})?$/i.test(c1 || '') ? c1 : '#d4af37';
-    const color2 = /^#[0-9a-f]{3}([0-9a-f]{3})?$/i.test(c2 || '') ? c2 : '#1a1a1a';
-    document.documentElement.style.setProperty('--theme-color-1', color1);
-    document.documentElement.style.setProperty('--theme-color-2', color2);
-    let hex = color1.substring(1).split('');
-    if(hex.length === 3) hex = [hex[0], hex[0], hex[1], hex[1], hex[2], hex[2]];
-    const valor = Number.parseInt(hex.join(''), 16);
-    document.documentElement.style.setProperty('--theme-light', `rgba(${[(valor >> 16) & 255, (valor >> 8) & 255, valor & 255].join(',')},0.1)`);
-}
-
-function cambiarFuente() { document.getElementById('app-body').style.fontFamily = document.getElementById('selector-fuente').value; }
-function cambiarTamanoFuente() {
-    const val = document.getElementById('selector-tamano-fuente').value;
-    document.documentElement.style.setProperty('--app-font-size', val + 'px');
-    document.getElementById('lbl-tamano-fuente').innerText = val + 'px';
-}
-
-async function guardarConfiguracionesFull(e) {
-    if (e) e.preventDefault();
-    if (!tienePermiso('configuracion')) return alert('No tienes permiso para actualizar la configuración.');
-    const boton = e?.currentTarget || e?.target;
-    const datos = {
-        nombre_empresa: document.getElementById('input-nombre-empresa').value.trim(),
-        font_family: document.getElementById('selector-fuente').value,
-        font_size: document.getElementById('selector-tamano-fuente').value,
-        permitir_descuentos: document.getElementById('switch-descuentos').checked ? 'true' : 'false',
-        theme_color_1: configSis.theme_color_1,
-        theme_color_2: configSis.theme_color_2
-    };
-    if (!datos.nombre_empresa) return alert('Indica el nombre de la empresa.');
-    try {
-        if (boton) { boton.disabled = true; boton.innerText = 'Guardando...'; }
-        const respuesta = await fetch('/api/configuracion', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(datos) });
-        const resultado = await respuesta.json().catch(() => ({}));
-        if (!respuesta.ok) throw new Error(resultado.error || 'No se pudo guardar la configuración.');
-        aplicarConfiguracionEnInterfaz(resultado.configuracion || datos);
-        if (boton) boton.innerText = '¡Guardado con éxito!';
-    } catch (error) {
-        alert(error.message || 'Ocurrió un error al guardar la configuración.');
-    } finally {
-        if (boton) setTimeout(() => { boton.disabled = false; boton.innerText = 'Guardar Configuraciones'; }, 1600);
+        console.error('No se pudo cargar la configuración de negocio.', error);
     }
 }
 
@@ -279,14 +211,17 @@ function normalizarSesion(respuesta) {
 }
 
 async function cargarSesionActual() {
-    try {
-        const respuesta = await fetch('/api/auth/sesion');
-        if (!respuesta.ok) return null;
-        return normalizarSesion(await respuesta.json());
-    } catch (error) {
-        console.error('No se pudo verificar la sesión.', error);
-        return null;
+    for (let intento = 0; intento < 3; intento++) {
+        try {
+            const respuesta = await fetch('/api/auth/sesion', { cache: 'no-store', credentials: 'same-origin' });
+            if (respuesta.ok) return normalizarSesion(await respuesta.json());
+            if (respuesta.status === 401) return null;
+        } catch (error) {
+            if (intento === 2) console.error('No se pudo verificar la sesión.', error);
+        }
+        await new Promise(resolve => setTimeout(resolve, 300));
     }
+    return null;
 }
 
 async function iniciarAplicacionAutenticada() {
@@ -348,33 +283,7 @@ async function iniciarSesion(evento) {
         boton.innerHTML = '<i class="fa-solid fa-right-to-bracket me-2"></i>Iniciar sesión';
     }
 }
-/* async function iniciarSesion(evento) {
-    evento.preventDefault();
-    const boton = document.getElementById('btn-iniciar-sesion');
-    const alerta = document.getElementById('login-mensaje');
-    const usuario = document.getElementById('login-usuario').value.trim();
-    const contrasena = document.getElementById('login-contrasena').value;
-    if (!usuario || !contrasena) return;
-    try {
-        boton.disabled = true;
-        boton.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Validando...';
-        alerta.classList.add('d-none');
-        const respuesta = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ usuario, contrasena }) });
-        const resultado = await respuesta.json().catch(() => ({}));
-        if (!respuesta.ok) throw new Error(resultado.error || 'Usuario o contraseña inválidos.');
-        sesionActual = normalizarSesion(resultado);
-        if (!sesionActual) throw new Error('El servidor no devolvió una sesión válida.');
-        document.getElementById('login-contrasena').value = '';
-        cerrarModalLogin();
-        await iniciarAplicacionAutenticada();
-    } catch (error) {
-        alerta.textContent = error.message || 'No se pudo iniciar sesión.';
-        alerta.classList.remove('d-none');
-    } finally {
-        boton.disabled = false;
-        boton.innerHTML = '<i class="fa-solid fa-right-to-bracket me-2"></i>Iniciar sesión';
-    }
-} */
+
 
 async function cerrarSesion() {
     try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (_) { /* La interfaz se cierra incluso sin respuesta. */ }
@@ -940,7 +849,13 @@ async function prepararVenta() {
 }
 
 function formatMoney(num, sim = '$') { return new Intl.NumberFormat('es-VE', { style: 'currency', currency: 'USD' }).format(num).replace('USD', sim); }
-function mostrarInfoModal(titulo, txt) { document.getElementById('titulo-ver-mas').innerHTML = `<i class="fa-solid fa-circle-info"></i> ${titulo}`; document.getElementById('ver_mas_texto').innerHTML = txt; new bootstrap.Modal(document.getElementById('modalVerMas')).show(); }
+function mostrarInfoModal(titulo, txt) {
+    document.getElementById('titulo-ver-mas').innerHTML = `<i class="fa-solid fa-circle-info"></i> ${titulo}`;
+    document.getElementById('ver_mas_texto').innerHTML = txt;
+    const acciones = document.getElementById('modal-ver-mas-acciones');
+    if (acciones) acciones.innerHTML = '';
+    new bootstrap.Modal(document.getElementById('modalVerMas')).show();
+}
 function mostrarImagenProducto(url) { document.getElementById('img_preview').src = url; new bootstrap.Modal(document.getElementById('modalImagen')).show(); }
 
 window.abrirDetalleExistencia = async function(prodId) {
@@ -998,8 +913,10 @@ window.abrirCorreccionExistencia = function(prodId) {
         ${tieneCarga ? '<div class="small text-muted">La cantidad es la de esa última carga, no el stock total acumulado.</div>' : ''}
     </div>`;
     mostrarInfoModal('Editar existencias — ' + p.descripcion, detalle);
-    const body = document.getElementById('modalVerMas')?.querySelector('.modal-body');
-    if (body) body.insertAdjacentHTML('beforeend', `<div class="d-flex justify-content-end mt-3"><button class="btn btn-warning fw-bold rounded-pill" onclick="guardarCorreccionExistencia(${p.id}, ${p.ultima_carga_id || 'null'})"><i class="fa-solid fa-shield-halved me-1"></i>${tieneCarga ? 'Aplicar corrección' : 'Guardar cambios'}</button></div>`);
+    const acciones = document.getElementById('modal-ver-mas-acciones');
+    if (acciones) {
+        acciones.innerHTML = `<button type="button" class="btn btn-warning text-dark fw-bold rounded-pill px-4" onclick="guardarCorreccionExistencia(${p.id}, ${p.ultima_carga_id || 'null'})"><i class="fa-solid fa-shield-halved me-1"></i>${tieneCarga ? 'Aplicar corrección' : 'Guardar cambios'}</button>`;
+    }
 }
 
 window.guardarCorreccionExistencia = async function(prodId, movimientoId) {
@@ -1520,7 +1437,7 @@ window.verPreviewNota = async function(consecutivo, id) {
     if (!exigirPermiso('historial_ventas')) return;
     let venta = dataGlobal.ventas.find(v => v.id === id);
     if(!venta) return;
-    document.getElementById('pdf_empresa').innerText = document.getElementById('brand-name').innerText;
+    document.getElementById('pdf_empresa').innerText = 'ZUARA APP';
     document.getElementById('pdf_consecutivo').innerText = venta.consecutivo;
     document.getElementById('pdf_tasa_eur').innerText = venta.tasa_bcv_euro_aplicada ? venta.tasa_bcv_euro_aplicada.toFixed(2) : '0.00';
     document.getElementById('pdf_fecha').innerText = venta.fecha_registro.split(' ')[0];
@@ -1572,7 +1489,7 @@ window.llenarYMostrarModalNC = async function(consecutivoNc) {
     let venta = dataGlobal.ventas.find(v => v.consecutivo === nc.consecutivo_origen);
     let cli = dataGlobal.clientes.find(c => c.nombre === nc.cliente_nombre);
 
-    document.getElementById('nc_pdf_empresa').innerText = document.getElementById('brand-name').innerText;
+    document.getElementById('nc_pdf_empresa').innerText = 'ZUARA APP';
     document.getElementById('nc_pdf_consecutivo').innerText = nc.consecutivo;
     
     // SE AGREGA AL PDF LA REFERENCIA DE LA FACTURA ORIGEN
@@ -1800,29 +1717,16 @@ window.buscarListaPreciosHistorica = async function() {
     }
 }
 
-window.onload = async () => {
+window.addEventListener('load', async () => {
     inicializarUI();
-    await cargarConfiguracion();
     sesionActual = await cargarSesionActual();
+    document.getElementById('app-body')?.classList.remove('app-loading');
     if (sesionActual) {
-        cerrarModalLogin(); // <-- Cierra el modal si ya hay sesión activa
+        cerrarModalLogin();
         await iniciarAplicacionAutenticada();
     } else {
         actualizarSesionEnInterfaz();
         aplicarPermisosInterfaz();
         abrirModalLogin('Inicia sesión para acceder a ZUARA APP.');
     }
-};
-
-/* window.onload = async () => {
-    inicializarUI();
-    await cargarConfiguracion();
-    sesionActual = await cargarSesionActual();
-    if (sesionActual) {
-        await iniciarAplicacionAutenticada();
-    } else {
-        actualizarSesionEnInterfaz();
-        aplicarPermisosInterfaz();
-        abrirModalLogin();
-    }
-}; */
+});
