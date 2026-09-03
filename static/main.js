@@ -976,6 +976,38 @@ window.abrirDetalleExistencia = async function(prodId) {
 }
 
 
+window.abrirCorreccionExistencia = function(prodId) {
+    if (!esAdministrador()) return alert('No tienes permiso para corregir existencias.');
+    const p = dataGlobal.existencias.find(e => e.id === prodId);
+    if (!p || !p.ultima_carga_id) return alert('Este producto no tiene una carga corregible registrada.');
+    const detalle = `<div class="text-start">
+        <div class="alert alert-warning small"><b>Ajuste administrativo:</b> la carga histórica no se borra ni se modifica; se agrega un movimiento de ajuste en Kardex.</div>
+        <p class="small text-muted mb-3">Última carga: ${escapeHTML(p.ultima_carga_documento || 'Sin documento')} · ${escapeHTML(p.ultima_carga_fecha || '')}</p>
+        <label class="form-label fw-bold">Cantidad corregida de la última carga</label>
+        <input type="number" min="0" step="0.01" id="corr_cantidad" class="form-control ios-input mb-3" value="${Number(p.ultima_carga_cantidad || 0).toFixed(2)}">
+        <label class="form-label fw-bold">Costo unitario corregido (USD)</label>
+        <input type="number" min="0" step="0.01" id="corr_costo" class="form-control ios-input mb-3" value="${Number(p.costo_unit || 0).toFixed(2)}">
+        <label class="form-label fw-bold">Precio objetivo (USD)</label>
+        <input type="number" min="0" step="0.01" id="corr_precio" class="form-control ios-input mb-3" value="${Number(p.precio_usd || 0).toFixed(2)}">
+        <div class="small text-muted">La cantidad aquí es la cantidad de esa última carga, no el stock total acumulado si existen otras cargas posteriores.</div>
+    </div>`;
+    mostrarInfoModal('Corrección administrativa — ' + p.descripcion, detalle);
+    const body = document.getElementById('modalVerMas')?.querySelector('.modal-body');
+    if (body) body.insertAdjacentHTML('beforeend', `<div class="d-flex justify-content-end mt-3"><button class="btn btn-warning fw-bold rounded-pill" onclick="guardarCorreccionExistencia(${p.id}, ${p.ultima_carga_id})"><i class="fa-solid fa-shield-halved me-1"></i>Aplicar ajuste</button></div>`);
+}
+
+window.guardarCorreccionExistencia = async function(prodId, movimientoId) {
+    if (!esAdministrador()) return alert('No tienes permiso para realizar esta operación.');
+    const payload = { movimiento_id: movimientoId, cantidad: document.getElementById('corr_cantidad')?.value, costo_unitario: document.getElementById('corr_costo')?.value, precio_usd: document.getElementById('corr_precio')?.value };
+    const r = await fetch(`/api/existencias/${prodId}/corregir`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) return alert(data.error || 'No se pudo aplicar la corrección.');
+    bootstrap.Modal.getInstance(document.getElementById('modalVerMas'))?.hide();
+    alert(`Ajuste ${data.ajuste} registrado correctamente. Revisa Existencias y Kardex.`);
+    await cargarDataTotal();
+}
+
+
 function renderTabla(m) {
     if(m === 'ventas' || m === 'parametros' || m === 'lista_precios' || m === 'reportes') return;
          
@@ -1019,7 +1051,7 @@ function renderTabla(m) {
                 <td class="text-danger fw-bolder">${i.stock_devoluciones}</td>
                 <td class="fw-bold">${formatMoney(i.costo_unit)}</td>
                 <td class="fw-bold text-theme-solid">${formatMoney(i.total_costo)}</td>
-                <td><button class="btn btn-sm btn-info text-white shadow-sm bounce-hover rounded-circle" onclick="abrirDetalleExistencia(${i.id})"><i class="fa-solid fa-eye"></i></button></td>
+                <td><button class="btn btn-sm btn-info text-white shadow-sm bounce-hover rounded-circle" title="Ver detalle" onclick="abrirDetalleExistencia(${i.id})"><i class="fa-solid fa-eye"></i></button>${esAdministrador() && i.ultima_carga_id ? `<button class="btn btn-sm btn-warning text-dark shadow-sm bounce-hover rounded-circle ms-1" title="Corregir última carga" onclick="abrirCorreccionExistencia(${i.id})"><i class="fa-solid fa-pen"></i></button>` : ''}</td>
             </tr>`;
         }
         else if(m === 'kardex') {
@@ -1099,6 +1131,8 @@ function llenarModalEditar(m, encodedStr) {
         document.getElementById('prod_bar').value = d.codigo_barras; document.getElementById('prod_des').value = d.descripcion;
         document.getElementById('prod_cat').value = d.categoria_id; document.getElementById('prod_prov').value = d.proveedor_id;
         document.getElementById('prod_uni').value = d.unidad_medida; document.getElementById('prod_precio_usd').value = d.precio_usd;
+        document.getElementById('prod_precio_usd').disabled = !esAdministrador();
+        document.getElementById('prod_precio_usd').title = esAdministrador() ? 'Precio objetivo editable por administrador.' : 'Solo un administrador puede modificar el precio objetivo.';
         document.getElementById('prod_min').value = d.stock_minimo; document.getElementById('prod_est').value = d.estado;
         document.getElementById('prod_foto').value = d.foto;
     }

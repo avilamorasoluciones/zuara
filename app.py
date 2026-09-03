@@ -6,6 +6,7 @@ import psycopg2.extras
 from psycopg2 import pool  # <-- IMPORTACIÓN DEL POOL AGREGADA
 import datetime
 import json
+from decimal import Decimal, ROUND_HALF_UP
 
 app = Flask(__name__)
 # Llave secreta necesaria para manejar las sesiones de los usuarios
@@ -166,6 +167,17 @@ def puede_gestionar_parametros():
 def puede_agregar_tasa():
     return puede_gestionar_parametros() or tiene_permiso_en_sesion('agregar_tasa')
 
+def es_administrador_actual():
+    return bool(session.get('usuario_id') and session.get('es_admin'))
+
+def precio_eur_comercial(precio_usd, factor_proteccion):
+    valor = (Decimal(str(precio_usd or 0)) * Decimal(str(factor_proteccion or 1)))
+    valor = valor.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+    entero_siguiente = valor.to_integral_value(rounding=ROUND_HALF_UP)
+    if valor < entero_siguiente and (entero_siguiente - valor) <= Decimal('0.01'):
+        valor = entero_siguiente
+    return float(valor)
+
 def respuesta_sin_permiso():
     return jsonify({'error': 'No tienes permiso para realizar esta operación.'}), 403
 
@@ -251,7 +263,7 @@ def api_resumen():
         prod = conn.execute('SELECT COUNT(*) FROM productos').fetchone()[0]
         v = conn.execute('SELECT COUNT(*) FROM ventas').fetchone()[0]
         pend_clientes = conn.execute("SELECT COUNT(*) FROM clientes WHERE documento = 'PENDIENTE' OR documento = ''").fetchone()[0]
-        pend_stock = conn.execute("SELECT COUNT(*) FROM productos p WHERE (COALESCE((SELECT SUM(cantidad) FROM movimientos WHERE producto_id = p.id AND tipo IN ('Inventario Inicial', 'Compra', 'Devolución por venta')), 0) - COALESCE((SELECT SUM(cantidad) FROM movimientos WHERE producto_id = p.id AND tipo IN ('Venta', 'Descarga por daño/motivo', 'Devolución por compra')), 0)) <= p.stock_minimo").fetchone()[0]
+        pend_stock = conn.execute("SELECT COUNT(*) FROM productos p WHERE (COALESCE((SELECT SUM(cantidad) FROM movimientos WHERE producto_id = p.id AND tipo IN ('Inventario Inicial', 'Compra', 'Devolución por venta', 'Ajuste administrativo - Entrada')), 0) - COALESCE((SELECT SUM(cantidad) FROM movimientos WHERE producto_id = p.id AND tipo IN ('Venta', 'Descarga por daño/motivo', 'Devolución por compra', 'Ajuste administrativo - Salida')), 0)) <= p.stock_minimo").fetchone()[0]
         return jsonify({'conteo': {'clientes': c, 'proveedores': p, 'productos': prod, 'ventas': v}, 'notificaciones': {'clientes_pendientes': pend_clientes, 'stock_bajo': pend_stock}})
     except Exception as e: return jsonify({'error': str(e)}), 500
     finally: conn.close()
@@ -277,13 +289,15 @@ def api_configuracion():
 def api_stock_almacenes(producto_id):
     conn = get_db_connection()
     try:
-        query = "SELECT a.id, a.nombre, COALESCE(SUM(CASE WHEN m.almacen_destino_id = a.id AND m.tipo IN ('Inventario Inicial', 'Compra', 'Traspaso', 'Devolución por venta') THEN m.cantidad ELSE 0 END), 0) - COALESCE(SUM(CASE WHEN m.almacen_origen_id = a.id AND m.tipo IN ('Traspaso', 'Descarga por daño/motivo', 'Devolución por compra') THEN m.cantidad ELSE 0 END), 0) as stock FROM almacenes a LEFT JOIN movimientos m ON (a.id = m.almacen_destino_id OR a.id = m.almacen_origen_id) AND m.producto_id = ? GROUP BY a.id"
+        query = "SELECT a.id, a.nombre, COALESCE(SUM(CASE WHEN m.almacen_destino_id = a.id AND m.tipo IN ('Inventario Inicial', 'Compra', 'Traspaso', 'Devolución por venta', 'Ajuste administrativo - Entrada') THEN m.cantidad ELSE 0 END), 0) - COALESCE(SUM(CASE WHEN m.almacen_origen_id = a.id AND m.tipo IN ('Traspaso', 'Descarga por daño/motivo', 'Devolución por compra', 'Ajuste administrativo - Salida') THEN m.cantidad ELSE 0 END), 0) as stock FROM almacenes a LEFT JOIN movimientos m ON (a.id = m.almacen_destino_id OR m.almacen_origen_id = a.id) AND m.producto_id = ? GROUP BY a.id"
         data = conn.execute(query, (producto_id,)).fetchall()
         return jsonify([dict(ix) for ix in data])
     finally: conn.close()
 
 @app.route('/api/movimientos', methods=['POST'])
 def registrar_movimiento():
+    if not tiene_permiso_en_sesion('movimientos'):
+        return respuesta_sin_permiso()
     usuario_actual = session.get('nombre', 'Sistema')
     conn = get_db_connection()
     try:
@@ -296,6 +310,9 @@ def registrar_movimiento():
         conn.execute('''INSERT INTO movimientos (consecutivo, fecha_registro, tipo, producto_id, cantidad, costo_unitario, almacen_origen_id, almacen_destino_id, motivo, documento, registrado_por) VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
                       (consecutivo, fecha_mov, d['tipo'], d['producto_id'], safe_float(d.get('cantidad')), safe_float(d.get('costo_unitario')), safe_int(d.get('almacen_origen_id')) or None, safe_int(d.get('almacen_destino_id')) or None, d.get('motivo',''), d.get('documento',''), usuario_actual))
         if 'precio_usd' in d and d['precio_usd'] != "":
+            if not es_administrador_actual():
+                conn.conn.rollback()
+                return respuesta_sin_permiso()
             conn.execute("UPDATE productos SET precio_usd = ? WHERE id = ?", (safe_float(d['precio_usd']), d['producto_id']))
             
         conn.commit()
@@ -303,17 +320,72 @@ def registrar_movimiento():
     except Exception as e: return jsonify({'error': str(e)}), 500
     finally: conn.close()
 
+@app.route('/api/existencias/<int:producto_id>/corregir', methods=['POST'])
+def corregir_ultima_carga(producto_id):
+    if not es_administrador_actual():
+        return respuesta_sin_permiso()
+    conn = get_db_connection()
+    try:
+        d = request.json or {}
+        nueva_cantidad = safe_float(d.get('cantidad'))
+        nuevo_costo = safe_float(d.get('costo_unitario'))
+        precio_usd = d.get('precio_usd')
+        if nueva_cantidad < 0 or nuevo_costo < 0:
+            return jsonify({'error': 'La cantidad y el costo no pueden ser negativos.'}), 400
+        if precio_usd is not None and precio_usd != '' and safe_float(precio_usd) < 0:
+            return jsonify({'error': 'El precio objetivo no puede ser negativo.'}), 400
+        carga = conn.execute("""SELECT id, consecutivo, fecha_registro, tipo, producto_id, cantidad, costo_unitario,
+                                       almacen_destino_id, motivo, documento
+                                FROM movimientos
+                                WHERE id = ? AND producto_id = ? AND tipo IN ('Inventario Inicial', 'Compra')
+                                FOR UPDATE""", (safe_int(d.get('movimiento_id')), producto_id)).fetchone()
+        if not carga:
+            return jsonify({'error': 'La carga indicada no existe o no es una carga corregible.'}), 404
+        if not carga['almacen_destino_id']:
+            return jsonify({'error': 'La carga no tiene un almacén destino válido.'}), 400
+        cantidad_anterior = float(carga['cantidad'] or 0)
+        costo_anterior = float(carga['costo_unitario'] or 0)
+        delta = round(nueva_cantidad - cantidad_anterior, 10)
+        precio_actual = safe_float(precio_usd) if precio_usd is not None and precio_usd != '' else None
+        tipo_ajuste = 'Ajuste administrativo - Entrada' if delta >= 0 else 'Ajuste administrativo - Salida'
+        cantidad_ajuste = abs(delta)
+        ult_mov = conn.execute('SELECT id FROM movimientos ORDER BY id DESC LIMIT 1').fetchone()
+        consecutivo = f"MOV-{str((ult_mov[0] + 1) if ult_mov else 1).zfill(5)}"
+        detalle = (f"Corrección administrativa de carga {carga['consecutivo']}: cantidad {cantidad_anterior:g} -> {nueva_cantidad:g}; costo {costo_anterior:.2f} -> {nuevo_costo:.2f}")
+        conn.execute("""INSERT INTO movimientos
+            (consecutivo, fecha_registro, tipo, producto_id, cantidad, costo_unitario,
+             almacen_origen_id, almacen_destino_id, motivo, documento, registrado_por)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (consecutivo, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), tipo_ajuste,
+             producto_id, cantidad_ajuste, nuevo_costo,
+             carga['almacen_destino_id'] if delta < 0 else None,
+             carga['almacen_destino_id'] if delta >= 0 else None,
+             detalle, carga['documento'] or carga['consecutivo'], session.get('nombre', 'Sistema')))
+        if precio_actual is not None:
+            conn.execute('UPDATE productos SET precio_usd = ? WHERE id = ?', (precio_actual, producto_id))
+        conn.commit()
+        return jsonify({'status': 'ok', 'ajuste': consecutivo, 'delta_cantidad': delta})
+    except Exception as e:
+        conn.conn.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
+
 @app.route('/api/existencias', methods=['GET'])
 def api_existencias():
     conn = get_db_connection()
     try:
         query = '''
             SELECT p.id, p.codigo_barras, p.descripcion, p.stock_minimo, p.unidad_medida, p.estado, 
-            COALESCE(SUM(CASE WHEN m.tipo IN ('Inventario Inicial', 'Compra', 'Devolución por venta') THEN m.cantidad ELSE 0 END), 0) - COALESCE(SUM(CASE WHEN m.tipo IN ('Venta', 'Descarga por daño/motivo', 'Devolución por compra') THEN m.cantidad ELSE 0 END), 0) as stock_fisico_total,
+            COALESCE(SUM(CASE WHEN m.tipo IN ('Inventario Inicial', 'Compra', 'Devolución por venta', 'Ajuste administrativo - Entrada') THEN m.cantidad ELSE 0 END), 0) - COALESCE(SUM(CASE WHEN m.tipo IN ('Venta', 'Descarga por daño/motivo', 'Devolución por compra', 'Ajuste administrativo - Salida') THEN m.cantidad ELSE 0 END), 0) as stock_fisico_total,
             COALESCE(SUM(CASE WHEN m.almacen_destino_id = 9999 THEN m.cantidad ELSE 0 END), 0) - COALESCE(SUM(CASE WHEN m.almacen_origen_id = 9999 THEN m.cantidad ELSE 0 END), 0) as stock_devoluciones,
             COALESCE(SUM(CASE WHEN m.almacen_destino_id = 9998 THEN m.cantidad ELSE 0 END), 0) - COALESCE(SUM(CASE WHEN m.almacen_origen_id = 9998 THEN m.cantidad ELSE 0 END), 0) as stock_merma,
-            (SELECT costo_unitario FROM movimientos WHERE producto_id = p.id AND tipo IN ('Inventario Inicial', 'Compra') ORDER BY id DESC LIMIT 1) as costo_unit,
-            p.precio_usd 
+            (SELECT costo_unitario FROM movimientos WHERE producto_id = p.id AND tipo IN ('Inventario Inicial', 'Compra', 'Ajuste administrativo - Entrada', 'Ajuste administrativo - Salida') ORDER BY id DESC LIMIT 1) as costo_unit,
+            p.precio_usd,
+            (SELECT id FROM movimientos WHERE producto_id = p.id AND tipo IN ('Inventario Inicial', 'Compra') ORDER BY id DESC LIMIT 1) as ultima_carga_id,
+            (SELECT cantidad FROM movimientos WHERE producto_id = p.id AND tipo IN ('Inventario Inicial', 'Compra') ORDER BY id DESC LIMIT 1) as ultima_carga_cantidad,
+            (SELECT fecha_registro FROM movimientos WHERE producto_id = p.id AND tipo IN ('Inventario Inicial', 'Compra') ORDER BY id DESC LIMIT 1) as ultima_carga_fecha,
+            (SELECT documento FROM movimientos WHERE producto_id = p.id AND tipo IN ('Inventario Inicial', 'Compra') ORDER BY id DESC LIMIT 1) as ultima_carga_documento
             FROM productos p LEFT JOIN movimientos m ON p.id = m.producto_id GROUP BY p.id ORDER BY p.descripcion ASC
         '''
         data = conn.execute(query).fetchall()
@@ -371,8 +443,8 @@ def api_ventas():
             for producto_id, cantidad_solicitada in cantidades_por_producto.items():
                 stock = conn.execute('''SELECT
                                         COALESCE(SUM(CASE
-                                            WHEN tipo IN ('Inventario Inicial', 'Compra', 'Devolución por venta') THEN cantidad
-                                            WHEN tipo IN ('Venta', 'Descarga por daño/motivo', 'Devolución por compra') THEN -cantidad
+                                            WHEN tipo IN ('Inventario Inicial', 'Compra', 'Devolución por venta', 'Ajuste administrativo - Entrada') THEN cantidad
+                                            WHEN tipo IN ('Venta', 'Descarga por daño/motivo', 'Devolución por compra', 'Ajuste administrativo - Salida') THEN -cantidad
                                             ELSE 0
                                         END), 0)
                                         - (
@@ -553,7 +625,7 @@ def api_lista_precios_data():
         resultados = []
         for p in prods:
             p_usd = float(p['precio_usd'] or 0)
-            p_eur = round(p_usd * factor, 2)
+            p_eur = precio_eur_comercial(p_usd, factor)
             p_bs = round(p_eur * t_eur, 2)
             resultados.append({
                 'id': p['id'], 'codigo': p['codigo'], 'categoria': p['categoria'] or 'N/A', 'descripcion': p['descripcion'],
@@ -729,6 +801,10 @@ def api_crud(tabla, request, id=None):
             
         elif request.method == 'PUT':
             d = request.json
+            if tabla_db == 'productos' and 'precio_usd' in d:
+                actual = conn.execute('SELECT precio_usd FROM productos WHERE id = ?', (id,)).fetchone()
+                if actual and abs(float(actual['precio_usd'] or 0) - safe_float(d.get('precio_usd'))) > 0.0000001 and not es_administrador_actual():
+                    return respuesta_sin_permiso()
             if tabla_db == 'clientes': 
                 conn.execute('UPDATE clientes SET documento=?, nombre=?, telefono=?, correo=?, pais=?, estado=?, municipio=?, direccion_entrega=?, punto_referencia=?, coordenadas=?, tipo_envio=? WHERE id=?', 
                              (d.get('documento','PENDIENTE'), d.get('nombre',''), d.get('telefono',''), d.get('correo',''), d.get('pais',''), d.get('estado',''), d.get('municipio',''), d.get('direccion_entrega',''), d.get('punto_referencia',''), d.get('coordenadas',''), d.get('tipo_envio',''), id))
