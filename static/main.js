@@ -132,7 +132,7 @@ function tienePermiso(permiso) {
     return Boolean(permisos[permiso] || (permiso === 'agregar_tasa' && permisos.parametros));
 }
 function primerModuloPermitido() { return Object.keys(PERMISO_POR_MODULO).find(modulo => tienePermiso(PERMISO_POR_MODULO[modulo])) || 'panel'; }
-function exigirPermiso(permiso, mensaje = 'No tienes permiso para realizar esta operación.') {
+function exigirPermiso(permiso, mensaje = 'No es posible realizar esta operación.') {
     if (!sesionActual) { abrirModalLogin(); return false; }
     if (!tienePermiso(permiso)) { alert(mensaje); return false; }
     return true;
@@ -465,7 +465,7 @@ function restablecerFormularioUsuario() {
 function cancelarEdicionUsuario() { restablecerFormularioUsuario(); }
 
 function editarUsuario(datosCodificados) {
-    if (!tienePermiso('usuarios')) return alert('No tienes permiso para administrar usuarios.');
+    if (!tienePermiso('usuarios')) return alert('No es posible realizar esta operación.');
     try {
         const usuario = JSON.parse(decodeURIComponent(datosCodificados));
         restablecerFormularioUsuario();
@@ -487,7 +487,7 @@ function editarUsuario(datosCodificados) {
 
 async function guardarUsuario(evento) {
     evento.preventDefault();
-    if (!tienePermiso('usuarios')) return alert('No tienes permiso para administrar usuarios.');
+    if (!tienePermiso('usuarios')) return alert('No es posible realizar esta operación.');
     const id = document.getElementById('usuario-id').value;
     const nombre = document.getElementById('usuario-nombre').value.trim();
     const usuario = document.getElementById('usuario-usuario').value.trim();
@@ -523,7 +523,7 @@ async function guardarUsuario(evento) {
 }
 
 async function eliminarUsuario(id) {
-    if (!tienePermiso('usuarios')) return alert('No tienes permiso para administrar usuarios.');
+    if (!tienePermiso('usuarios')) return alert('No es posible realizar esta operación.');
     if (String(id) === String(sesionActual?.id)) return alert('No puedes eliminar tu propia sesión.');
     const usuario = dataGlobal.usuarios.find(item => String(item.id) === String(id));
     const nombre = usuario?.nombre || usuario?.usuario || 'seleccionado';
@@ -715,7 +715,7 @@ function mostrarNotificaciones() {
 function showModule(mId, refrescar = true) {
     const permiso = PERMISO_POR_MODULO[mId] || mId;
     if (!sesionActual) { abrirModalLogin(); return; }
-    if (!tienePermiso(permiso)) return alert('No tienes permiso para acceder a este módulo.');
+    if (!tienePermiso(permiso)) return alert('No es posible abrir este módulo.');
     if (refrescar && ['panel', 'existencias', 'kardex', 'historial_ventas', 'parametros', 'usuarios'].includes(mId)) cargarDataTotal();
     if (mId === 'lista_precios') cargarListaPreciosDinamica();
 
@@ -733,7 +733,7 @@ function showModule(mId, refrescar = true) {
 
 function abrirModal(m) {
     const permiso = m === 'tasas' ? 'agregar_tasa' : m;
-    if (!tienePermiso(permiso)) return alert('No tienes permiso para realizar esta operación.');
+    if (!tienePermiso(permiso)) return alert('No es posible realizar esta operación.');
     if (m === 'productos') {
         if (dataGlobal.categorias.length === 0) { if(confirm("¡Falta Categoría!\n¿Crear una ahora?")) abrirModal('categorias'); return; }
         if (dataGlobal.proveedores.length === 0) { if(confirm("¡Falta Proveedor!\n¿Crear uno ahora?")) abrirModal('proveedores'); return; }
@@ -808,7 +808,7 @@ async function prepararVenta() {
     if (!r.ok) {
         let errorData = {};
         try { errorData = await r.json(); } catch (_) {}
-        alert(errorData.error || "No se pudo preparar la Nota de Entrega. Verifica que tengas permiso para crear notas y que las tasas del día estén disponibles.");
+        alert(errorData.error || "No se pudo preparar la Nota de Entrega. Verifica que las tasas del día estén disponibles.");
         return;
     }
     let res = await r.json();
@@ -818,7 +818,7 @@ async function prepararVenta() {
             const continuar = confirm(
                 "⚠️ NO SE PUEDE FACTURAR TODAVÍA\n\n" +
                 "No se ha registrado la tasa oficial del día de hoy.\n\n" +
-                "Este usuario tiene el permiso independiente «Agregar tasa», así que puede registrarla sin tener acceso al módulo Parámetros.\n\n" +
+                "La tasa del día puede registrarse directamente desde «Agregar tasa».\n\n" +
                 "¿Quieres registrar la tasa ahora?"
             );
             if (continuar) {
@@ -829,7 +829,7 @@ async function prepararVenta() {
             alert(
                 "⚠️ NO SE PUEDE FACTURAR TODAVÍA\n\n" +
                 "No se ha registrado la tasa oficial del día de hoy.\n\n" +
-                "Este usuario no tiene el permiso independiente «Agregar tasa». Un usuario autorizado debe registrar la tasa del día para poder emitir la Nota de Entrega."
+                "Para continuar, debe registrarse la tasa oficial del día."
             );
         }
         return;
@@ -915,7 +915,7 @@ window.abrirDetalleExistencia = async function(prodId) {
 
 
 window.abrirCorreccionExistencia = function(prodId) {
-    if (!esAdministrador()) return alert('No tienes permiso para editar existencias.');
+    if (!esAdministrador()) return alert('No es posible realizar esta operación.');
     const p = dataGlobal.existencias.find(e => e.id === prodId);
     if (!p) return;
 
@@ -950,7 +950,7 @@ window.abrirCorreccionExistencia = function(prodId) {
 };
 
 window.guardarCorreccionExistencia = async function() {
-    if (!esAdministrador()) return alert('No tienes permiso para realizar esta operación.');
+    if (!esAdministrador()) return alert('No es posible realizar esta operación.');
     const boton = document.getElementById('btn-aplicar-correccion');
     const prodId = Number(boton?.dataset.productoId || 0);
     const movimientoId = boton?.dataset.movimientoId ? Number(boton.dataset.movimientoId) : null;

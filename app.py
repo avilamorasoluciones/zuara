@@ -180,7 +180,7 @@ def precio_eur_comercial(precio_usd, factor_proteccion):
     return float(valor)
 
 def respuesta_sin_permiso():
-    return jsonify({'error': 'No tienes permiso para realizar esta operación.'}), 403
+    return jsonify({'error': 'No es posible realizar esta operación.'}), 403
 
 def es_ultimo_administrador_activo(conn, usuario_id):
     """Indica si el usuario es el único administrador activo restante."""
