@@ -1748,12 +1748,12 @@ window.verPreviewNota = async function(consecutivo, id) {
                 <td style="padding:5px; border-bottom:1px solid #000;">${it.producto_nombre}</td>
                 <td style="padding:5px; text-align:center; border-bottom:1px solid #000;">${it.cantidad}</td>
                 <td style="padding:5px; text-align:center; border-bottom:1px solid #000;">${it.descuento||0}%</td>
-                <td style="padding:5px; text-align:right; border-bottom:1px solid #000;">€ ${parseFloat(it.precio_unitario_euro_snapshot).toFixed(2)}</td>
-                <td style="padding:5px; text-align:right; border-bottom:1px solid #000;">€ ${parseFloat(it.subtotal_euro_snapshot).toFixed(2)}</td>
-                <td style="padding:5px; text-align:right; border-bottom:1px solid #000;">€ ${parseFloat(it.total_euro_snapshot).toFixed(2)}</td>
-                <td style="padding:5px; text-align:right; border-bottom:1px solid #000;">Bs ${parseFloat(it.precio_unitario_bs_snapshot).toFixed(2)}</td>
-                <td style="padding:5px; text-align:right; border-bottom:1px solid #000;">Bs ${parseFloat(it.subtotal_bs_snapshot).toFixed(2)}</td>
-                <td style="padding:5px; text-align:right; border-bottom:1px solid #000;">Bs ${parseFloat(it.total_bs_snapshot).toFixed(2)}</td>
+                <td style="padding:5px; text-align:right; white-space:nowrap; border-bottom:1px solid #000;">€ ${parseFloat(it.precio_unitario_euro_snapshot).toFixed(2)}</td>
+                <td style="padding:5px; text-align:right; white-space:nowrap; border-bottom:1px solid #000;">€ ${parseFloat(it.subtotal_euro_snapshot).toFixed(2)}</td>
+                <td style="padding:5px; text-align:right; white-space:nowrap; border-bottom:1px solid #000;">€ ${parseFloat(it.total_euro_snapshot).toFixed(2)}</td>
+                <td style="padding:5px; text-align:right; white-space:nowrap; border-bottom:1px solid #000;">Bs ${parseFloat(it.precio_unitario_bs_snapshot).toFixed(2)}</td>
+                <td style="padding:5px; text-align:right; white-space:nowrap; border-bottom:1px solid #000;">Bs ${parseFloat(it.subtotal_bs_snapshot).toFixed(2)}</td>
+                <td style="padding:5px; text-align:right; white-space:nowrap; border-bottom:1px solid #000;">Bs ${parseFloat(it.total_bs_snapshot).toFixed(2)}</td>
             </tr>`;
         });
     }
@@ -1826,12 +1826,12 @@ window.llenarYMostrarModalNC = async function(consecutivoNc) {
                 <td style="padding:5px; border-bottom:1px solid #000;">${it.producto_nombre}</td>
                 <td style="padding:5px; text-align:center; border-bottom:1px solid #000;">${it.cantidad}</td>
                 <td style="padding:5px; text-align:center; border-bottom:1px solid #000;">${desc}%</td>
-                <td style="padding:5px; text-align:right; border-bottom:1px solid #000;">€ ${parseFloat(it.precio_eur).toFixed(2)}</td>
-                <td style="padding:5px; text-align:right; border-bottom:1px solid #000;">€ ${sub_eur.toFixed(2)}</td>
-                <td style="padding:5px; text-align:right; border-bottom:1px solid #000;">€ ${tot_eur.toFixed(2)}</td>
-                <td style="padding:5px; text-align:right; border-bottom:1px solid #000;">Bs ${parseFloat(it.precio_bs).toFixed(2)}</td>
-                <td style="padding:5px; text-align:right; border-bottom:1px solid #000;">Bs ${sub_bs.toFixed(2)}</td>
-                <td style="padding:5px; text-align:right; border-bottom:1px solid #000;">Bs ${tot_bs.toFixed(2)}</td>
+                <td style="padding:5px; text-align:right; white-space:nowrap; border-bottom:1px solid #000;">€ ${parseFloat(it.precio_eur).toFixed(2)}</td>
+                <td style="padding:5px; text-align:right; white-space:nowrap; border-bottom:1px solid #000;">€ ${sub_eur.toFixed(2)}</td>
+                <td style="padding:5px; text-align:right; white-space:nowrap; border-bottom:1px solid #000;">€ ${tot_eur.toFixed(2)}</td>
+                <td style="padding:5px; text-align:right; white-space:nowrap; border-bottom:1px solid #000;">Bs ${parseFloat(it.precio_bs).toFixed(2)}</td>
+                <td style="padding:5px; text-align:right; white-space:nowrap; border-bottom:1px solid #000;">Bs ${sub_bs.toFixed(2)}</td>
+                <td style="padding:5px; text-align:right; white-space:nowrap; border-bottom:1px solid #000;">Bs ${tot_bs.toFixed(2)}</td>
             </tr>`;
         });
     }
