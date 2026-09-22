@@ -2012,8 +2012,38 @@ window.generarVistaPreviaReporte = async function() {
         filters = [];
     } else if (tipo === 'lista_precios') {
         headers = ['Código','Producto','Categoría','Precio Obj USD','Precio Euro','Precio BS (Día)'];
-        rows = dataGlobal.lista_precios_dinamica.map(p => [p.codigo || '-', p.descripcion, p.categoria, Number(p.precio_usd || 0), Number(p.precio_eur || 0), Number(p.precio_bs || 0)]);
-        filters = [`Fecha: ${new Date().toLocaleDateString('es-VE')}`];
+
+        // El módulo de Lista de precios carga estos datos bajo demanda. El usuario,
+        // sin embargo, puede entrar directamente a Reportes sin haber abierto ese módulo,
+        // por lo que dataGlobal.lista_precios_dinamica puede estar vacío.
+        // Para que el reporte sea independiente de la navegación previa, consultamos
+        // la misma fuente oficial de datos que utiliza el módulo de Lista de precios.
+        try {
+            const respuestaLista = await fetch('/api/lista_precios_data', {
+                cache: 'no-store',
+                credentials: 'same-origin'
+            });
+            if (!respuestaLista.ok) throw new Error('No se pudo consultar la lista de precios.');
+            const datosLista = await respuestaLista.json();
+            dataGlobal.lista_precios_dinamica = Array.isArray(datosLista.productos) ? datosLista.productos : [];
+            rows = dataGlobal.lista_precios_dinamica.map(p => [
+                p.codigo || '-',
+                p.descripcion,
+                p.categoria,
+                Number(p.precio_usd || 0),
+                Number(p.precio_eur || 0),
+                Number(p.precio_bs || 0)
+            ]);
+
+            if (datosLista.tasas?.fecha) {
+                filters = [`Fecha: ${formatearFechaTasa(datosLista.tasas.fecha)}`];
+            } else {
+                filters = [`Fecha: ${new Date().toLocaleDateString('es-VE')}`];
+            }
+        } catch (error) {
+            console.error('No se pudo cargar la lista de precios para el reporte:', error);
+            return alert('No se pudo cargar la lista de precios. Verifica la conexión e inténtalo nuevamente.');
+        }
     } else if (tipo === 'existencias') {
         headers = ['Código','Producto','Total Físico','Disp. para Venta','Costo Unit.','Total Invertido'];
         rows = dataGlobal.existencias.map(e => [e.codigo_barras || '-', e.descripcion, Number(e.stock_fisico_total || 0), Number(e.stock_disponible_venta || 0), Number(e.costo_unit || 0), Number(e.total_costo || 0)]);
