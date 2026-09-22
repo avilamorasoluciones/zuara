@@ -1014,7 +1014,7 @@ function actualizarSelectorProductosVenta(productos) {
     if (resultados) resultados.classList.add('d-none');
 }
 
-function formatMoney(num, sim = '$') { return new Intl.NumberFormat('es-VE', { style: 'currency', currency: 'USD' }).format(num).replace('USD', sim); }
+function formatMoney(num, sim = '$'
 function mostrarInfoModal(titulo, txt) {
     document.getElementById('titulo-ver-mas').innerHTML = `<i class="fa-solid fa-circle-info"></i> ${titulo}`;
     document.getElementById('ver_mas_texto').innerHTML = txt;
