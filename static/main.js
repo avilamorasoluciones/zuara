@@ -750,8 +750,24 @@ function abrirModal(m) {
         document.getElementById('t_fecha').value = `${yy}-${mm}-${dd}`;
         document.getElementById('t_hora').value = n.toTimeString().substring(0,5);
     }
+    const modalElement = document.getElementById(`modal-${m}`);
+    const idElement = document.getElementById(`id-${m}`);
+    if (!modalElement || !idElement) {
+        console.error(`No se encontró el modal dinámico para: ${m}`);
+        alert('No se pudo abrir el formulario. Recarga la página e inténtalo nuevamente.');
+        return;
+    }
+
     document.getElementById(`titulo-modal-${m}`).innerText = 'Nuevo Registro';
-    new bootstrap.Modal(document.getElementById(`modal-${m}`)).show();
+
+    // Los modales dinámicos viven inicialmente dentro de un contenedor con scroll.
+    // Bootstrap recomienda colocar los modales en un nivel alto del DOM para evitar
+    // problemas de renderizado/posicionamiento de position: fixed.
+    if (m === 'tasas' && modalElement.parentElement !== document.body) {
+        document.body.appendChild(modalElement);
+    }
+
+    bootstrap.Modal.getOrCreateInstance(modalElement).show();
 }
 
 function generarNEN() {
