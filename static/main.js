@@ -633,7 +633,15 @@ window.subirExcelTasas = async function() {
 
 window.cargarListaPreciosDinamica = async function() {
     if (!exigirPermiso('lista_precios')) return;
-    let r = await fetch('/api/lista_precios_data');
+    let fechaConsulta = '';
+    if (typeof esAdministrador === 'function' && esAdministrador()) {
+        const campoFecha = document.getElementById('v_fecha_facturacion');
+        fechaConsulta = campoFecha?.value || '';
+    }
+    const urlListaPrecios = fechaConsulta
+        ? `/api/lista_precios_data?fecha=${encodeURIComponent(fechaConsulta)}`
+        : '/api/lista_precios_data';
+    let r = await fetch(urlListaPrecios);
     let data = await r.json();
     actualizarEstadoTasasHoy(data.tasas);
     document.getElementById('lp_factor').innerText = (1 + data.tasas.cobertura_activa).toFixed(2);
