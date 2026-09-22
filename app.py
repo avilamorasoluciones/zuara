@@ -465,26 +465,29 @@ def api_ventas():
             d = request.json
             c_nombre = d.get('cliente_nombre', '').strip()
 
-            # La tasa siempre es la del día operativo del sistema.
-            # La fecha del documento solo puede ser personalizada por un administrador.
+            # La tasa corresponde a la fecha efectiva de facturación.
+            # Administrador: puede elegir una fecha personalizada.
+            # Usuario normal: queda forzado al día operativo del sistema.
             hoy_sistema = fecha_sistema_venezuela()
             es_admin_facturacion = es_administrador_actual()
             fecha_facturacion = d.get('fecha_facturacion', hoy_sistema) if es_admin_facturacion else hoy_sistema
             if not validar_fecha_tasa(fecha_facturacion):
                 return jsonify({'error': 'La fecha de facturación no es válida. Selecciona una fecha real.'}), 400
 
-            tasa_hoy = conn.execute(
+            tasa_fecha = conn.execute(
                 "SELECT fecha, hora, binance, euro_bcv FROM historico_tasas WHERE fecha = ? ORDER BY hora DESC LIMIT 1",
-                (hoy_sistema,)
+                (fecha_facturacion,)
             ).fetchone()
-            if not tasa_hoy:
+            if not tasa_fecha:
+                if es_admin_facturacion and fecha_facturacion != hoy_sistema:
+                    return jsonify({'error': f'No existe una tasa oficial registrada para la fecha seleccionada ({fecha_facturacion}).'}), 400
                 return jsonify({'error': 'No existe una tasa oficial registrada para el día del sistema.'}), 400
 
-            tasa_euro_sistema = float(tasa_hoy['euro_bcv'] or 0)
-            tasa_binance_sistema = float(tasa_hoy['binance'] or 0)
+            tasa_euro_sistema = float(tasa_fecha['euro_bcv'] or 0)
+            tasa_binance_sistema = float(tasa_fecha['binance'] or 0)
             brecha_sistema = (tasa_binance_sistema / tasa_euro_sistema) - 1 if tasa_euro_sistema > 0 else 0
             if tasa_euro_sistema <= 0:
-                return jsonify({'error': 'La tasa Euro BCV del día del sistema no es válida.'}), 400
+                return jsonify({'error': 'La tasa Euro BCV de la fecha de facturación no es válida.'}), 400
             
             if not c_nombre: return jsonify({'error': 'El nombre del cliente es obligatorio'}), 400
             if not d.get('detalles'): return jsonify({'error': 'El carrito está vacío'}), 400
