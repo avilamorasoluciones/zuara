@@ -957,10 +957,13 @@ function actualizarSelectorProductosVenta(productos) {
     if (!sel) return;
 
     const disponibles = (productos || []).map(p => {
-        const stockData = dataGlobal.existencias.find(e => e.id === p.id);
+        const stockData = dataGlobal.existencias.find(e => String(e.id) === String(p.id));
         const disp = stockData ? Number(stockData.stock_disponible_venta || 0) : 0;
         return { ...p, stockDisponible: disp, codigoMostrar: p.codigo || p.codigo_barras || 'SIN CÓDIGO' };
     }).filter(p => p.stockDisponible > 0);
+    
+    // Los IDs pueden llegar como número o como texto desde PostgreSQL/JSON.
+    // La comparación se normaliza arriba para no ocultar productos con existencia.
 
     let opcionesHTML = '<option value="" disabled selected>Seleccionar Producto...</option>';
     disponibles.forEach(p => {
