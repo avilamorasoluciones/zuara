@@ -5,6 +5,7 @@ import psycopg2
 import psycopg2.extras
 from psycopg2 import pool  # <-- IMPORTACIÓN DEL POOL AGREGADA
 import datetime
+from zoneinfo import ZoneInfo
 import json
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -632,7 +633,10 @@ def get_detalles_nota_credito(consecutivo_nc):
 def api_lista_precios_data():
     conn = get_db_connection()
     try:
-        hoy = datetime.datetime.now().strftime("%Y-%m-%d")
+        # Las tasas y la facturación operan con la fecha local de Venezuela/Colombia,
+        # no con la fecha UTC del servidor de Render. Esto evita que después de las 7 PM
+        # locales el servidor ya considere que es el día siguiente.
+        hoy = datetime.datetime.now(ZoneInfo('America/Caracas')).strftime("%Y-%m-%d")
         cob = conn.execute("SELECT porcentaje_cobertura, factor_proteccion FROM historico_coberturas WHERE estado='ACTIVO' ORDER BY id DESC LIMIT 1").fetchone()
         factor = float(cob['factor_proteccion']) if cob else 1.0
         cobertura_activa = float(cob['porcentaje_cobertura']) if cob else 0.0
