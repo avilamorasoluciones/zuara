@@ -1913,7 +1913,7 @@ window.addEventListener('load', async () => {
         wrap.innerHTML = admin
             ? '<span class="fw-bold text-muted text-uppercase small letter-spacing">Fecha a facturar</span>' +
               '<input type="date" id="v_fecha_facturacion" class="form-control fw-bolder text-theme-solid mt-1" required>' +
-              '<small class="text-muted d-block mt-1"><i class="fa-solid fa-shield-halved me-1"></i>Fecha editable por administrador. La tasa sigue siendo la del día del sistema.</small>'
+              '<small class="text-muted d-block mt-1"><i class="fa-solid fa-shield-halved me-1"></i>El administrador puede elegir la fecha y se aplicará la tasa registrada de esa fecha.</small>'
             : '<input type="hidden" id="v_fecha_facturacion">';
 
         encabezado.insertBefore(wrap, encabezado.firstElementChild);
