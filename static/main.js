@@ -2072,24 +2072,27 @@ async function exportarReporteExcel() {
     });
 
     const colCount = r.headers.length;
-    const lastCol = String.fromCharCode(64 + colCount);
+    const lastCol = (() => { let n = colCount, s = ''; while (n) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); } return s; })();
     ws.mergeCells(`A1:${lastCol}1`);
-    const titleCell = ws.getCell('A1');
-    titleCell.value = `ZUARA — ${r.titulo}`;
-    titleCell.font = { name: 'Arial', size: 18, bold: true, color: { argb: 'FF111111' } };
-    titleCell.alignment = { horizontal: 'left', vertical: 'middle' };
+    const brandCell = ws.getCell('A1');
+    brandCell.value = 'ZUARA';
+    brandCell.font = { name: 'Arial', size: 18, bold: true, color: { argb: 'FF111111' } };
+    brandCell.alignment = { horizontal: 'left', vertical: 'middle' };
     ws.getRow(1).height = 27;
 
     ws.mergeCells(`A2:${lastCol}2`);
-    const filterCell = ws.getCell('A2');
+    const reportNameCell = ws.getCell('A2');
+    reportNameCell.value = r.titulo;
+    reportNameCell.font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FF333333' } };
+    reportNameCell.alignment = { horizontal: 'left', vertical: 'middle' };
+    ws.getRow(2).height = 21;
+
+    ws.mergeCells(`A3:${lastCol}3`);
+    const filterCell = ws.getCell('A3');
     filterCell.value = r.filters.length ? r.filters.join('    |    ') : 'Sin filtros de fecha';
     filterCell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF666666' } };
     filterCell.alignment = { horizontal: 'left', vertical: 'middle' };
-    ws.getRow(2).height = 20;
-
-    ws.mergeCells(`A3:${lastCol}3`);
-    ws.getCell('A3').value = '';
-    ws.getRow(3).height = 8;
+    ws.getRow(3).height = 19;
 
     const headerRow = ws.getRow(4);
     r.headers.forEach((header, i) => {
@@ -2169,27 +2172,30 @@ function exportarReportePDF() {
     const doc = new jsPDF({ orientation: cfg.orientation, unit: 'mm', format: cfg.format, compress: true });
     const pageWidth = doc.internal.pageSize.getWidth();
 
-    const title = `ZUARA — ${r.titulo}`;
     const filters = r.filters.length ? r.filters.join('    |    ') : '';
     const safeRows = r.rows.map(row => row.map((v, i) => reporteMostrarValor(v, r.headers[i])));
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(17);
     doc.setTextColor(17, 17, 17);
-    doc.text(title, cfg.margin, 13);
+    doc.text('ZUARA', cfg.margin, 12);
+
+    doc.setFontSize(10.5);
+    doc.setTextColor(55, 55, 55);
+    doc.text(r.titulo, cfg.margin, 18);
 
     if (filters) {
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8.5);
+        doc.setFontSize(7.5);
         doc.setTextColor(100, 100, 100);
-        doc.text(filters, cfg.margin, 19);
+        doc.text(filters, cfg.margin, 23);
     }
 
     doc.autoTable({
         head: [r.headers],
         body: safeRows,
-        startY: filters ? 23 : 20,
-        margin: { left: cfg.margin, right: cfg.margin, top: 23, bottom: 10 },
+        startY: filters ? 27 : 23,
+        margin: { left: cfg.margin, right: cfg.margin, top: filters ? 27 : 23, bottom: 10 },
         tableWidth: 'auto',
         theme: 'plain',
         styles: {
