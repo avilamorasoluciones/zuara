@@ -843,7 +843,17 @@ async function prepararVenta() {
         return;
     }
          
-    let r = await fetch('/api/lista_precios_data');
+    // El administrador puede preparar la Nota de Entrega con la fecha que haya seleccionado.
+    // El usuario normal queda forzado por backend a la fecha operativa del sistema.
+    let fechaConsulta = '';
+    if (typeof esAdministrador === 'function' && esAdministrador()) {
+        const campoFecha = document.getElementById('v_fecha_facturacion');
+        fechaConsulta = campoFecha?.value || '';
+    }
+    const urlListaPrecios = fechaConsulta
+        ? '/api/lista_precios_data?fecha=' + encodeURIComponent(fechaConsulta)
+        : '/api/lista_precios_data';
+    let r = await fetch(urlListaPrecios, { credentials: 'same-origin', cache: 'no-store' });
     if (!r.ok) {
         let errorData = {};
         try { errorData = await r.json(); } catch (_) {}
@@ -1952,14 +1962,12 @@ window.addEventListener('load', async () => {
 
     const prepararVentaOriginal = window.prepararVenta;
     window.prepararVenta = async function () {
-        const resultado = await prepararVentaOriginal.apply(this, arguments);
+        // El selector debe existir ANTES de prepararVentaOriginal para que el
+        // administrador pueda consultar la tasa de la fecha elegida.
         asegurarSelectorFecha();
         const campo = document.getElementById('v_fecha_facturacion');
-        if (campo) {
-            campo.value = fechaHoyLocal();
-            if (typeof actualizarNomenclatura === 'function') actualizarNomenclatura();
-        }
-        return resultado;
+        if (campo && !campo.value) campo.value = fechaHoyLocal();
+        return prepararVentaOriginal.apply(this, arguments);
     };
 
     const procesarVentaOriginal = window.procesarVenta;
