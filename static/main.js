@@ -347,8 +347,7 @@ function actualizarEstadoTasasHoy(tasas) {
 
 function aplicarLogicaDescuentos(estado) {
     const permit = (estado === 'true');
-    if(!permit) { document.getElementById('col-descuento-input').classList.add('d-none'); document.querySelectorAll('.col-desc-header, .col-desc-cell').forEach(el => el.classList.add('d-none')); }
-    else { document.getElementById('col-descuento-input').classList.remove('d-none'); document.querySelectorAll('.col-desc-header, .col-desc-cell').forEach(el => el.classList.remove('d-none')); }
+    if(!permit) { document.getElementById('col-descuento-input').classList.add('d-none'); document.querySelectorAll('.col-desc-header, .col-desc-cell').forEach(el => el.classList.add('d-none')); }    else { document.getElementById('col-descuento-input').classList.remove('d-none'); document.querySelectorAll('.col-desc-header, .col-desc-cell').forEach(el => el.classList.remove('d-none')); }
 }
 
 function actualizarContadores(conteo = {}) {
@@ -697,8 +696,7 @@ function poblarSelectNotasCredito() {
         html = '<option value="" disabled selected>El cliente no tiene NC disponibles</option>';
     } else {
         notasCreditoClienteActual.forEach(nc => {
-            let disponible = parseFloat(nc.total_eur) - parseFloat(nc.saldo_usado_eur || 0);
-            html += `<option value="${nc.id}" data-saldo="${disponible}" data-bs="${nc.total_bs}">${nc.consecutivo} - Saldo: €${disponible.toFixed(2)}</option>`;
+            let disponible = parseFloat(nc.total_eur) - parseFloat(nc.saldo_usado_eur || 0);            html += `<option value="${nc.id}" data-saldo="${disponible}" data-bs="${nc.total_bs}">${nc.consecutivo} - Saldo: €${disponible.toFixed(2)}</option>`;
         });
     }
     sel.innerHTML = html;
@@ -1047,8 +1045,7 @@ function renderTabla(m) {
         else if(m === 'productos') {
             let btnFoto = i.foto ? `<button class="btn btn-sm btn-light border rounded-circle text-theme-solid" onclick="mostrarImagenProducto('${i.foto}')"><i class="fa-solid fa-camera"></i></button>` : '-';
             html = `<tr><td>${btnFoto}</td><td class="text-muted">${i.codigo_barras||'-'}</td><td class="fw-bold text-theme-solid">${i.descripcion}</td><td><span class="badge bg-theme-light text-theme-solid">${i.categoria_nombre||'N/A'}</span></td><td class="fw-bold">${i.unidad_medida}</td><td class="fw-bolder text-success" style="cursor:pointer;" title="Haz click en Editar para cambiar el Precio Objetivo">$${parseFloat(i.precio_usd||0).toFixed(2)}</td><td class="text-danger fw-bold">${i.stock_minimo}</td><td>${i.estado === 'ACTIVO' ? '<span class="badge bg-success">ACTIVO</span>' : '<span class="badge bg-danger">NO DISP.</span>'}</td><td>${btnAcc}</td></tr>`;
-        }
-        else if(m === 'existencias') {
+        }        else if(m === 'existencias') {
             const disp = i.stock_disponible_venta;
             const alerta = disp <= i.stock_minimo ? 'text-danger fw-bolder fs-5' : 'text-success fw-bolder fs-5';
             html = `<tr>
@@ -1097,7 +1094,8 @@ function renderTabla(m) {
             }
             const btnVenta = `<button class="btn-action btn-edit me-1 text-primary shadow-sm" onclick="verPreviewNota('${i.consecutivo}', ${i.id})" title="Ver PDF Factura Original"><i class="fa-solid fa-file-pdf"></i></button>${ncBtn}<button class="btn-action btn-delete text-danger shadow-sm" onclick="eliminarRegistro('ventas', ${i.id})" title="Eliminar"><i class="fa-solid fa-trash"></i></button>`;
             
-            html = `<tr><td class="fw-bold">${i.consecutivo} ${badgeSemaforo}</td><td class="small text-muted fw-bold">${i.fecha_registro}</td><td class="fw-bold text-theme-solid">${i.cliente_nombre||'-'}</td><td class="fw-bold text-muted">${i.cliente_telefono||'-'}</td><td class="fw-bolder fs-5 text-theme-solid">€ ${parseFloat(i.total_eur).toFixed(2)}</td><td><span class="badge bg-warning text-dark fw-bold">Asociada</span></td><td>${btnVenta}</td></tr>`;
+            const fechaVentaMostrar = i.fecha_facturacion || (i.fecha_registro || '').split(' ')[0];
+            html = `<tr><td class="fw-bold">${i.consecutivo} ${badgeSemaforo}</td><td class="small text-muted fw-bold">${fechaVentaMostrar}</td><td class="fw-bold text-theme-solid">${i.cliente_nombre||'-'}</td><td class="fw-bold text-muted">${i.cliente_telefono||'-'}</td><td class="fw-bolder fs-5 text-theme-solid">€ ${parseFloat(i.total_eur).toFixed(2)}</td><td><span class="badge bg-warning text-dark fw-bold">Asociada</span></td><td>${btnVenta}</td></tr>`;
         }
         tb.innerHTML += `<tr style="animation-delay: ${dly}s">${html}</tr>`;
     });
@@ -1397,8 +1395,7 @@ function agregarAlCarrito() {
     let totalEur = subTotalEur * (1 - (desc / 100));
     let subTotalBs = cant * precioBs;
     let totalBs = subTotalBs * (1 - (desc / 100));
-         
-    carritoVentas.push({
+             carritoVentas.push({
         producto_id: prod.id, codigo: prod.codigo, descripcion: prod.descripcion, cantidad: cant,
         descuento: desc, precio_eur: precioBaseEuro, sub_eur: subTotalEur, total_eur: totalEur,
         pre_bs: precioBs, sub_bs: subTotalBs, tot_bs: totalBs
@@ -1490,7 +1487,8 @@ async function procesarVenta() {
         brecha_dia: window.estadoSemaforo.brecha,
         estado_semaforo: document.getElementById('top_semaforo_txt').innerText.split(' ')[1] || 'EMITIDA',
         metodo_pago: pago || 'No especificado',
-        nc_id: nc_id
+        nc_id: nc_id,
+        fecha_facturacion: document.getElementById('v_fecha_facturacion')?.value || ''
     };
          
     const res = await fetch('/api/ventas', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
@@ -1530,7 +1528,7 @@ async function buscarNotaParaDevolucion() {
     if(!venta) return alert("Factura no encontrada. Revisa el consecutivo.");
          
     document.getElementById('dev_factura_num').innerText = venta.consecutivo;
-    document.getElementById('dev_factura_fecha').innerText = venta.fecha_registro;
+    document.getElementById('dev_factura_fecha').innerText = venta.fecha_facturacion || venta.fecha_registro;
     document.getElementById('dev_factura_cliente').innerText = venta.cliente_nombre;
          
     const res = await fetch(`/api/ventas/detalles/${venta.consecutivo}`);
@@ -1598,7 +1596,7 @@ window.verPreviewNota = async function(consecutivo, id) {
     document.getElementById('pdf_empresa').innerText = 'ZUARA APP';
     document.getElementById('pdf_consecutivo').innerText = venta.consecutivo;
     document.getElementById('pdf_tasa_eur').innerText = venta.tasa_bcv_euro_aplicada ? venta.tasa_bcv_euro_aplicada.toFixed(2) : '0.00';
-    document.getElementById('pdf_fecha').innerText = venta.fecha_registro.split(' ')[0];
+    document.getElementById('pdf_fecha').innerText = venta.fecha_facturacion || venta.fecha_registro.split(' ')[0];
     document.getElementById('pdf_hora').innerText = venta.fecha_registro.split(' ')[1] || '';
     document.getElementById('pdf_cli_nom').innerText = venta.cliente_nombre;
     document.getElementById('pdf_cli_tel').innerText = venta.cliente_telefono;
@@ -1741,14 +1739,14 @@ window.generarVistaPreviaReporte = function() {
          
     if(tipo === 'ventas') {
         th.innerHTML = `<tr><th>Fecha / Hora</th><th>Nº Factura</th><th>Cliente</th><th>Monto EUR</th><th>Monto BS</th><th>Método de Pago</th><th>Usuario</th></tr>`;
-        let filtrado = dataGlobal.ventas.filter(v => { let d = new Date(v.fecha_registro); return d >= desde && d <= hasta; });
+        let filtrado = dataGlobal.ventas.filter(v => { let d = new Date((v.fecha_facturacion || (v.fecha_registro || '').split(' ')[0]) + "T00:00:00"); return d >= desde && d <= hasta; });
         filtrado.forEach(v => {
-            tb.innerHTML += `<tr><td>${v.fecha_registro}</td><td class="fw-bold">${v.consecutivo}</td><td>${v.cliente_nombre}</td><td>€ ${parseFloat(v.total_eur).toFixed(2)}</td><td>Bs ${parseFloat(v.total_bs || 0).toFixed(2)}</td><td>${v.metodo_pago||'-'}</td><td>${v.registrado_por}</td></tr>`;
+            const fechaReporte = v.fecha_facturacion || (v.fecha_registro || '').split(' ')[0];
+            tb.innerHTML += `<tr><td>${fechaReporte}</td><td class="fw-bold">${v.consecutivo}</td><td>${v.cliente_nombre}</td><td>€ ${parseFloat(v.total_eur).toFixed(2)}</td><td>Bs ${parseFloat(v.total_bs || 0).toFixed(2)}</td><td>${v.metodo_pago||'-'}</td><td>${v.registrado_por}</td></tr>`;
         });
     }
     else if(tipo === 'devoluciones_venta') {
-        th.innerHTML = `<tr><th>Fecha</th><th>Consecutivo</th><th>Movimiento</th><th>Producto</th><th>Cant. Devuelta</th><th>Doc. Afectado</th><th>Resp.</th></tr>`;
-        let filtrado = dataGlobal.kardex.filter(k => { let d = new Date(k.fecha_registro); return d >= desde && d <= hasta && k.tipo === 'Devolución por venta'; });
+        th.innerHTML = `<tr><th>Fecha</th><th>Consecutivo</th><th>Movimiento</th><th>Producto</th><th>Cant. Devuelta</th><th>Doc. Afectado</th><th>Resp.</th></tr>`;        let filtrado = dataGlobal.kardex.filter(k => { let d = new Date(k.fecha_registro); return d >= desde && d <= hasta && k.tipo === 'Devolución por venta'; });
         filtrado.forEach(k => { tb.innerHTML += `<tr><td>${k.fecha_registro}</td><td class="fw-bold">${k.consecutivo}</td><td>${k.tipo}</td><td>${k.producto_nombre}</td><td>${k.cantidad}</td><td>${k.documento}</td><td>${k.registrado_por}</td></tr>`; });
     }
     else if(tipo === 'devoluciones_compra') {
@@ -1888,3 +1886,93 @@ window.addEventListener('load', async () => {
         abrirModalLogin('Inicia sesión para acceder a ZUARA APP.');
     }
 });
+
+/* ZUARA APP · Fecha personalizada de facturación para administradores.
+   La tasa siempre se obtiene del día del sistema desde el backend.
+   Los usuarios normales no pueden alterar la fecha de facturación.
+*/
+(function () {
+    'use strict';
+
+    function fechaHoyLocal() {
+        const n = new Date();
+        return n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0') + '-' + String(n.getDate()).padStart(2, '0');
+    }
+
+    function asegurarSelectorFecha() {
+        const modulo = document.getElementById('modulo-ventas');
+        if (!modulo || document.getElementById('v_fecha_facturacion_wrap')) return;
+
+        const admin = typeof esAdministrador === 'function' && esAdministrador();
+        const encabezado = modulo.querySelector('.nota-entrega-header');
+        if (!encabezado) return;
+
+        const wrap = document.createElement('div');
+        wrap.id = 'v_fecha_facturacion_wrap';
+        wrap.className = 'mb-3 mb-md-0';
+        wrap.innerHTML = admin
+            ? '<span class="fw-bold text-muted text-uppercase small letter-spacing">Fecha a facturar</span>' +
+              '<input type="date" id="v_fecha_facturacion" class="form-control fw-bolder text-theme-solid mt-1" required>' +
+              '<small class="text-muted d-block mt-1"><i class="fa-solid fa-shield-halved me-1"></i>Fecha editable por administrador. La tasa sigue siendo la del día del sistema.</small>'
+            : '<input type="hidden" id="v_fecha_facturacion">';
+
+        encabezado.insertBefore(wrap, encabezado.firstElementChild);
+        const campo = document.getElementById('v_fecha_facturacion');
+        if (campo) {
+            campo.value = fechaHoyLocal();
+            campo.addEventListener('change', function () {
+                if (typeof actualizarNomenclatura === 'function') actualizarNomenclatura();
+            });
+        }
+    }
+
+    const generarNENOriginal = window.generarNEN;
+    window.generarNEN = function () {
+        const campo = document.getElementById('v_fecha_facturacion');
+        const fecha = campo && campo.value ? campo.value : fechaHoyLocal();
+        const tipoEnvio = document.getElementById('v_env_tip')?.value || 'Nacional';
+        const letra = tipoEnvio === 'Local' ? 'L' : 'N';
+        const [yy, mm, dd] = fecha.split('-');
+        const consec = (dataGlobal.ventas.length + 1).toString().padStart(4, '0');
+        return `NE${letra}${consec}_${dd}${mm}${String(yy).slice(-2)}`;
+    };
+
+    const prepararVentaOriginal = window.prepararVenta;
+    window.prepararVenta = async function () {
+        const resultado = await prepararVentaOriginal.apply(this, arguments);
+        asegurarSelectorFecha();
+        const campo = document.getElementById('v_fecha_facturacion');
+        if (campo) {
+            campo.value = fechaHoyLocal();
+            if (typeof actualizarNomenclatura === 'function') actualizarNomenclatura();
+        }
+        return resultado;
+    };
+
+    const procesarVentaOriginal = window.procesarVenta;
+    window.procesarVenta = async function () {
+        if (!document.getElementById('v_fecha_facturacion')) asegurarSelectorFecha();
+        const campo = document.getElementById('v_fecha_facturacion');
+        if (typeof esAdministrador === 'function' && esAdministrador()) {
+            if (!campo?.value) return alert('Selecciona la fecha a facturar.');
+        } else if (campo) {
+            campo.value = fechaHoyLocal();
+        }
+        return procesarVentaOriginal.apply(this, arguments);
+    };
+
+    function refrescarCuandoAbreVentas() {
+        if (document.getElementById('modulo-ventas') && !document.getElementById('modulo-ventas').classList.contains('d-none')) {
+            asegurarSelectorFecha();
+        }
+    }
+
+    const showModuleOriginal = window.showModule;
+    window.showModule = function () {
+        const r = showModuleOriginal.apply(this, arguments);
+        if (arguments[0] === 'ventas') setTimeout(refrescarCuandoAbreVentas, 0);
+        return r;
+    };
+
+    window.addEventListener('load', () => setTimeout(refrescarCuandoAbreVentas, 0));
+})();
