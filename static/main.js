@@ -497,8 +497,7 @@ async function guardarUsuario(evento) {
     const boton = evento.submitter || document.querySelector('#form-usuario button[type="submit"]');
 
     if (!nombre || !usuario) return alert('Completa el nombre y el usuario.');
-    if ((!id && contrasena.length < 8) || (contrasena && contrasena.length < 8)) return alert('La contraseña debe tener al menos 8 caracteres.');
-    if (contrasena !== confirmar) return alert('Las contraseñas no coinciden.');
+    if ((!id && contrasena.length < 8) || (contrasena && contrasena.length < 8)) return alert('La contraseña debe tener al menos 8 caracteres.');    if (contrasena !== confirmar) return alert('Las contraseñas no coinciden.');
 
     const payload = {
         nombre,
@@ -997,8 +996,7 @@ function renderTabla(m) {
     if (c.pag > totalPags) c.pag = totalPags;
     const ini = (c.pag - 1) * c.filas;
     const fn = ini + parseInt(c.filas);
-    const most = filt.slice(ini, fn);
-    const tb = document.querySelector(`#tabla-${m} tbody`);
+    const most = filt.slice(ini, fn);    const tb = document.querySelector(`#tabla-${m} tbody`);
     tb.innerHTML = '';
          
     most.forEach((i, idx) => {
@@ -1135,20 +1133,43 @@ function llenarModalEditar(m, encodedStr) {
 
 async function guardarFormulario(e, m) {
     e.preventDefault();
+
     const id = document.getElementById(`id-${m}`).value;
     const permiso = m === 'tasas' ? (id ? 'parametros' : 'agregar_tasa') : (m === 'coberturas' ? 'parametros' : m);
     if (!exigirPermiso(permiso)) return;
+
     let payload = {};
-         
+
     if(m === 'clientes') payload = { documento: document.getElementById('c_doc').value, nombre: document.getElementById('c_nom').value, telefono: document.getElementById('c_cod').value + document.getElementById('c_tel').value, correo: document.getElementById('c_cor').value, pais: document.getElementById('c_pais').value, estado: document.getElementById('c_est').value, municipio: document.getElementById('c_mun').value, direccion_entrega: document.getElementById('c_dir_ent').value, punto_referencia: document.getElementById('c_ref').value, coordenadas: document.getElementById('c_coo').value, tipo_envio: document.getElementById('c_tipo_env').value };
     else if(m === 'proveedores') payload = { nombre: document.getElementById('p_nom').value, tipo: document.getElementById('p_tipo').value, telefono: document.getElementById('p_tel').value, correo: document.getElementById('p_cor').value, direccion: document.getElementById('p_dir').value };
     else if(m === 'almacenes') payload = { nombre: document.getElementById('a_nom').value, ubicacion: document.getElementById('a_ubi').value };
     else if(m === 'categorias') payload = { nombre: document.getElementById('cat_nom').value, descripcion: document.getElementById('cat_des').value };
     else if(m === 'productos') payload = { codigo_barras: document.getElementById('prod_bar').value, descripcion: document.getElementById('prod_des').value, categoria_id: document.getElementById('prod_cat').value, proveedor_id: document.getElementById('prod_prov').value, unidad_medida: document.getElementById('prod_uni').value, precio_usd: document.getElementById('prod_precio_usd').value, stock_minimo: document.getElementById('prod_min').value, estado: document.getElementById('prod_est').value, foto: document.getElementById('prod_foto').value };
     else if(m === 'tasas') {
-        let horaFormat = document.getElementById('t_hora').value;
+        const fecha = document.getElementById('t_fecha').value;
+        const binance = document.getElementById('t_bin').value;
+        const euro = document.getElementById('t_ebcv').value;
+        const hora = document.getElementById('t_hora').value;
+
+        if (!fecha || !binance || !euro || !hora) {
+            alert('Completa los campos obligatorios: Fecha, Binance P2P, Euro BCV y Hora.');
+            return;
+        }
+
+        let horaFormat = hora;
         if(horaFormat.length === 5) horaFormat += ":00";
-        payload = { fecha: document.getElementById('t_fecha').value, hora: horaFormat, dolar_bcv: document.getElementById('t_dbcv').value, binance: document.getElementById('t_bin').value, bybit: document.getElementById('t_byb').value, dolar_promedio: document.getElementById('t_dpro').value, euro_bcv: document.getElementById('t_ebcv').value, zelle: document.getElementById('t_zel').value, paypal: document.getElementById('t_pay').value };
+
+        payload = {
+            fecha,
+            hora: horaFormat,
+            dolar_bcv: document.getElementById('t_dbcv').value,
+            binance,
+            bybit: document.getElementById('t_byb').value,
+            dolar_promedio: document.getElementById('t_dpro').value,
+            euro_bcv: euro,
+            zelle: document.getElementById('t_zel').value,
+            paypal: document.getElementById('t_pay').value
+        };
     }
     else if(m === 'coberturas') {
         payload = {
@@ -1159,20 +1180,52 @@ async function guardarFormulario(e, m) {
             estado: document.getElementById('cob_estado').value
         };
     }
-         
-    let res = await fetch(id ? `/api/${m}/${id}` : `/api/${m}`, { method: id ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
-    if(!res.ok) { alert("Hubo un error al guardar. Revisa que llenaste todos los campos."); return; }
-    bootstrap.Modal.getInstance(document.getElementById(`modal-${m}`)).hide();
-    await cargarDataTotal();
 
-    // Si la tasa se registró desde el flujo de Nota de Entrega, volvemos
-    // automáticamente a la venta para que el usuario pueda continuar.
-    if (m === 'tasas' && volverANotaTrasRegistrarTasa) {
-        volverANotaTrasRegistrarTasa = false;
-        await prepararVenta();
+    const botonGuardar = document.querySelector(`#modal-${m} form button[type="submit"]`);
+    if (botonGuardar) {
+        botonGuardar.disabled = true;
+        botonGuardar.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i>Guardando...';
+    }
+
+    try {
+        const res = await fetch(id ? `/api/${m}/${id}` : `/api/${m}`, {
+            method: id ? 'PUT' : 'POST',
+            headers: {'Content-Type': 'application/json'},
+            credentials: 'same-origin',
+            body: JSON.stringify(payload)
+        });
+
+        const resultado = await res.json().catch(() => ({}));
+
+        if(!res.ok) {
+            if (res.status === 401 || res.status === 403) {
+                sesionActual = null;
+                actualizarSesionEnInterfaz();
+                aplicarPermisosInterfaz();
+                alert(resultado.error || 'La sesión actual ya no es válida. Inicia sesión nuevamente.');
+                abrirModalLogin();
+                return;
+            }
+            throw new Error(resultado.error || 'Hubo un error al guardar el registro.');
+        }
+
+        bootstrap.Modal.getInstance(document.getElementById(`modal-${m}`))?.hide();
+        await cargarDataTotal();
+
+        if (m === 'tasas' && volverANotaTrasRegistrarTasa) {
+            volverANotaTrasRegistrarTasa = false;
+            await prepararVenta();
+        }
+    } catch (error) {
+        console.error('Error al guardar registro:', error);
+        alert(error.message || 'No se pudo guardar el registro. Revisa la conexión e inténtalo nuevamente.');
+    } finally {
+        if (botonGuardar) {
+            botonGuardar.disabled = false;
+            botonGuardar.innerHTML = 'Guardar';
+        }
     }
 }
-
 function eliminarRegistro(m, id) {
     const permiso = ['tasas', 'coberturas'].includes(m) ? 'parametros' : (m === 'ventas' ? 'historial_ventas' : m);
     if (!exigirPermiso(permiso)) return;
@@ -1498,7 +1551,6 @@ async function procesarDevolucionDefinitiva() {
         alert("Error procesando devolución.");
     }
 }
-
 window.verPreviewNota = async function(consecutivo, id) {
     if (!exigirPermiso('historial_ventas')) return;
     let venta = dataGlobal.ventas.find(v => v.id === id);
