@@ -2195,7 +2195,7 @@ function exportarReportePDF() {
         styles: {
             font: 'helvetica',
             fontSize: cfg.fontSize,
-            cellPadding: cfg.headers?.length > 12 ? 1.2 : 1.8,
+            cellPadding: r.headers.length > 12 ? 1.2 : 1.8,
             textColor: [30,30,30],
             lineWidth: 0,
             overflow: 'linebreak',
