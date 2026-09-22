@@ -729,7 +729,8 @@ def upload_tasas():
     f = request.files['file']
     usuario_actual = session.get('nombre', 'Sistema')
     try:
-        import openpyxl        wb = openpyxl.load_workbook(f, data_only=True)
+        import openpyxl
+        wb = openpyxl.load_workbook(f, data_only=True)
         sheet = wb.active
         conn = get_db_connection()
         inserted = 0
