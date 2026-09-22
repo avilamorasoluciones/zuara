@@ -677,11 +677,17 @@ def api_lista_precios_data():
         # Las tasas y la facturación operan con la fecha local de Venezuela/Colombia,
         # no con la fecha UTC del servidor de Render. Esto evita que después de las 7 PM
         # locales el servidor ya considere que es el día siguiente.
-        hoy = datetime.datetime.now(ZoneInfo('America/Caracas')).strftime("%Y-%m-%d")
+        hoy = fecha_sistema_venezuela()
+        es_admin = es_administrador_actual()
+        fecha_consulta = request.args.get('fecha', '').strip() if es_admin else ''
+        if not fecha_consulta:
+            fecha_consulta = hoy
+        if not validar_fecha_tasa(fecha_consulta):
+            return jsonify({'error': 'La fecha de consulta no es válida.'}), 400
         cob = conn.execute("SELECT porcentaje_cobertura, factor_proteccion FROM historico_coberturas WHERE estado='ACTIVO' ORDER BY id DESC LIMIT 1").fetchone()
         factor = float(cob['factor_proteccion']) if cob else 1.0
         cobertura_activa = float(cob['porcentaje_cobertura']) if cob else 0.0
-        tasa = conn.execute("SELECT fecha, hora, binance, euro_bcv FROM historico_tasas WHERE fecha = ? ORDER BY hora DESC LIMIT 1", (hoy,)).fetchone()
+        tasa = conn.execute("SELECT fecha, hora, binance, euro_bcv FROM historico_tasas WHERE fecha = ? ORDER BY hora DESC LIMIT 1", (fecha_consulta,)).fetchone()
         if not tasa:
             t_bin = 0.0; t_eur = 0.0; brecha_dia = 0.0
             estado = "FALTAN_TASAS"; etiqueta = "REGISTRE TASA DEL DÍA"
@@ -704,7 +710,7 @@ def api_lista_precios_data():
                 'estado_semaforo': estado, 'etiqueta_semaforo': etiqueta
             })
         data_final = {
-            'tasas': {'fecha': tasa['fecha'] if tasa else hoy, 'hora': tasa['hora'] if tasa else '--:--', 'binance': t_bin, 'euro_bcv': t_eur, 'brecha': brecha_dia, 'cobertura_activa': cobertura_activa, 'registrada_hoy': bool(tasa)},
+            'tasas': {'fecha': tasa['fecha'] if tasa else fecha_consulta, 'hora': tasa['hora'] if tasa else '--:--', 'binance': t_bin, 'euro_bcv': t_eur, 'brecha': brecha_dia, 'cobertura_activa': cobertura_activa, 'registrada_hoy': bool(tasa), 'fecha_consultada': fecha_consulta, 'es_admin': es_admin},
             'productos': resultados
         }
         conn.execute("INSERT INTO historico_precios_dia (fecha, json_data) VALUES (?, ?) ON CONFLICT (fecha) DO UPDATE SET json_data = EXCLUDED.json_data", (hoy, json.dumps(data_final)))
