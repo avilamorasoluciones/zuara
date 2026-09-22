@@ -105,7 +105,10 @@ function inicializarUI() {
 
 function crearHTMLModal(id, titulo, campos) {
     const sinValidacionNativa = id === 'tasas' ? ' novalidate' : '';
-    return `<div class="modal fade" id="modal-${id}" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content ios-modal border-0 shadow-lg"><div class="modal-header border-0 pb-0 pt-4 px-4 d-flex justify-content-between align-items-center"><h5 class="modal-title fw-bolder" id="titulo-modal-${id}">${titulo}</h5><button type="button" class="btn-close rounded-circle bg-light p-2 m-0" data-bs-dismiss="modal"></button></div><div class="modal-body p-4 pt-3"><form${sinValidacionNativa} onsubmit="guardarFormulario(event, '${id}')"><input type="hidden" id="id-${id}">${campos}<button type="submit" class="btn btn-theme w-100 rounded-pill fw-bold py-2 shadow-sm bounce-hover fs-6">Guardar</button></form></div></div></div></div>`;
+    const accionGuardar = id === 'tasas'
+        ? `type="button" onclick="guardarFormulario(event, 'tasas')"`
+        : `type="submit"`;
+    return `<div class="modal fade" id="modal-${id}" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content ios-modal border-0 shadow-lg"><div class="modal-header border-0 pb-0 pt-4 px-4 d-flex justify-content-between align-items-center"><h5 class="modal-title fw-bolder" id="titulo-modal-${id}">${titulo}</h5><button type="button" class="btn-close rounded-circle bg-light p-2 m-0" data-bs-dismiss="modal"></button></div><div class="modal-body p-4 pt-3"><form${sinValidacionNativa} onsubmit="guardarFormulario(event, '${id}')"><input type="hidden" id="id-${id}">${campos}<button ${accionGuardar} class="btn btn-theme w-100 rounded-pill fw-bold py-2 shadow-sm bounce-hover fs-6">Guardar</button></form></div></div></div></div>`;
 }
 
 function calcBrechaForm() {
