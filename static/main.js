@@ -843,13 +843,34 @@ async function prepararVenta() {
         return;
     }
          
-    // El administrador puede preparar la Nota de Entrega con la fecha que haya seleccionado.
-    // El usuario normal queda forzado por backend a la fecha operativa del sistema.
-    let fechaConsulta = '';
-    if (typeof esAdministrador === 'function' && esAdministrador()) {
-        const campoFecha = document.getElementById('v_fecha_facturacion');
-        fechaConsulta = campoFecha?.value || '';
+    // El administrador debe poder elegir la fecha ANTES de consultar la tasa.
+    // Este bloque también funciona si el navegador conserva una versión anterior
+    // del wrapper que crea el selector dinámicamente.
+    const adminFacturacion = typeof esAdministrador === 'function' && esAdministrador();
+    let campoFecha = document.getElementById('v_fecha_facturacion');
+    if (adminFacturacion && !campoFecha) {
+        const encabezado = document.querySelector('#modulo-ventas .nota-entrega-header');
+        if (encabezado) {
+            const wrap = document.createElement('div');
+            wrap.id = 'v_fecha_facturacion_wrap';
+            wrap.className = 'mb-3 mb-md-0';
+            wrap.innerHTML =
+                '<span class="fw-bold text-muted text-uppercase small letter-spacing">Fecha a facturar</span>' +
+                '<input type="date" id="v_fecha_facturacion" class="form-control fw-bolder text-theme-solid mt-1" required>' +
+                '<small class="text-muted d-block mt-1"><i class="fa-solid fa-shield-halved me-1"></i>El administrador puede elegir la fecha y se aplicará la tasa de esa fecha.</small>';
+            encabezado.insertBefore(wrap, encabezado.firstElementChild);
+            campoFecha = document.getElementById('v_fecha_facturacion');
+            if (campoFecha) {
+                campoFecha.value = new Intl.DateTimeFormat('en-CA', {
+                    timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit'
+                }).format(new Date());
+                campoFecha.addEventListener('change', () => {
+                    if (typeof actualizarNomenclatura === 'function') actualizarNomenclatura();
+                });
+            }
+        }
     }
+    let fechaConsulta = adminFacturacion ? (campoFecha?.value || '') : '';
     const urlListaPrecios = fechaConsulta
         ? '/api/lista_precios_data?fecha=' + encodeURIComponent(fechaConsulta)
         : '/api/lista_precios_data';
@@ -863,7 +884,17 @@ async function prepararVenta() {
     let res = await r.json();
          
     if(!res.tasas || !res.tasas.registrada_hoy) {
-        if (tienePermiso('agregar_tasa')) {
+        // El administrador NO debe quedar bloqueado por la falta de tasa de hoy:
+        // puede elegir una fecha histórica que sí tenga tasa.
+        if (adminFacturacion) {
+            showModule('ventas');
+            const fechaActiva = document.getElementById('v_fecha_facturacion')?.value || fechaConsulta || '';
+            alert(
+                "⚠️ NO HAY TASA PARA LA FECHA SELECCIONADA\n\n" +
+                "No existe una tasa registrada para " + (fechaActiva || "la fecha seleccionada") + ".\n\n" +
+                "Como administrador, selecciona otra fecha en «Fecha a facturar» que tenga una tasa registrada y vuelve a preparar la Nota de Entrega."
+            );
+        } else if (tienePermiso('agregar_tasa')) {
             const continuar = confirm(
                 "⚠️ NO SE PUEDE FACTURAR TODAVÍA\n\n" +
                 "No se ha registrado la tasa oficial del día de hoy.\n\n" +
