@@ -544,7 +544,7 @@ async function eliminarUsuario(id) {
 
 function formatearFechaTasa(fecha) {
     const texto = String(fecha || '').trim();
-    const match = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(texto);
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(texto);
     return match ? `${match[3]}/${match[2]}/${match[1]}` : texto;
 }
 
@@ -1974,8 +1974,15 @@ window.addEventListener('load', async () => {
         const campo = document.getElementById('v_fecha_facturacion');
         if (campo) {
             campo.value = fechaHoyLocal();
-            campo.addEventListener('change', function () {
+            campo.addEventListener('change', async function () {
                 if (typeof actualizarNomenclatura === 'function') actualizarNomenclatura();
+                // La fecha puede cambiar después de haber abierto la Nota de Entrega.
+                // En ese caso hay que volver a consultar la tasa de ESA fecha.
+                try {
+                    await prepararVenta();
+                } catch (error) {
+                    console.error('No se pudo actualizar la tasa de la fecha seleccionada:', error);
+                }
             });
         }
     }
