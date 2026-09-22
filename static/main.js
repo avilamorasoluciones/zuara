@@ -936,9 +936,12 @@ async function prepararVenta() {
         document.getElementById('v_prod_sel').disabled = false;
     }
          
+    // Primero cargamos existencias para que el buscador pueda calcular el stock disponible.
+    // Antes se llenaba el selector antes de cargar dataGlobal.existencias y todos los productos
+    // podían quedar filtrados como si tuvieran stock 0.
+    await cargarDataTotal();
     let prodsSeguros = res.productos.filter(p => p.estado_semaforo !== 'MERCADO_VOLATIL');
     actualizarSelectorProductosVenta(prodsSeguros);
-    await cargarDataTotal();
     document.getElementById('v_num_entrega').value = generarNEN();
     showModule('ventas');
 }
