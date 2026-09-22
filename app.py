@@ -88,7 +88,7 @@ def init_db():
         conn.execute('''CREATE TABLE IF NOT EXISTS categorias (id SERIAL PRIMARY KEY, nombre TEXT, descripcion TEXT, fecha_registro TEXT, registrado_por TEXT)''')
         conn.execute('''CREATE TABLE IF NOT EXISTS productos (id SERIAL PRIMARY KEY, categoria_id INTEGER, proveedor_id INTEGER, descripcion TEXT, unidad_medida TEXT, stock_minimo INTEGER, precio_usd REAL, estado TEXT, codigo_barras TEXT, foto TEXT, fecha_registro TEXT, registrado_por TEXT)''')
         conn.execute('''CREATE TABLE IF NOT EXISTS movimientos (id SERIAL PRIMARY KEY, consecutivo TEXT, fecha_registro TEXT, tipo TEXT, producto_id INTEGER, cantidad REAL, costo_unitario REAL, almacen_origen_id INTEGER, almacen_destino_id INTEGER, motivo TEXT, documento TEXT, registrado_por TEXT)''')
-        conn.execute('''CREATE TABLE IF NOT EXISTS ventas (id SERIAL PRIMARY KEY, consecutivo TEXT, fecha_registro TEXT, cliente_nombre TEXT, cliente_telefono TEXT, direccion_entrega TEXT, total_eur REAL, total_bs REAL DEFAULT 0, tasa_bcv_euro_aplicada REAL, tasa_binance_aplicada REAL, porcentaje_brecha_aplicado REAL, estado TEXT, registrado_por TEXT, metodo_pago TEXT)''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS ventas (id SERIAL PRIMARY KEY, consecutivo TEXT, fecha_registro TEXT, fecha_facturacion TEXT, cliente_nombre TEXT, cliente_telefono TEXT, direccion_entrega TEXT, total_eur REAL, total_bs REAL DEFAULT 0, tasa_bcv_euro_aplicada REAL, tasa_binance_aplicada REAL, porcentaje_brecha_aplicado REAL, estado TEXT, registrado_por TEXT, metodo_pago TEXT)''')
         conn.execute('''CREATE TABLE IF NOT EXISTS detalle_nota_entrega (id SERIAL PRIMARY KEY, consecutivo TEXT, producto_id INTEGER, cantidad REAL, descuento REAL, precio_unitario_euro_snapshot REAL, subtotal_euro_snapshot REAL, total_euro_snapshot REAL, precio_unitario_bs_snapshot REAL, subtotal_bs_snapshot REAL, total_bs_snapshot REAL)''')
         
         # Módulo Devoluciones y Notas de Crédito
@@ -108,6 +108,8 @@ def init_db():
         # Migraciones automáticas (Usando safe_alter)
         safe_alter(conn, "ALTER TABLE productos ADD COLUMN precio_usd REAL DEFAULT 0")
         safe_alter(conn, "ALTER TABLE ventas ADD COLUMN metodo_pago TEXT DEFAULT ''")
+        safe_alter(conn, "ALTER TABLE ventas ADD COLUMN fecha_facturacion TEXT DEFAULT ''")
+        conn.execute("UPDATE ventas SET fecha_facturacion = split_part(fecha_registro, ' ', 1) WHERE COALESCE(fecha_facturacion, '') = ''")
         safe_alter(conn, "ALTER TABLE ventas ADD COLUMN total_bs REAL DEFAULT 0")
         safe_alter(conn, "ALTER TABLE notas_credito ADD COLUMN saldo_usado_eur REAL DEFAULT 0")
         safe_alter(conn, "ALTER TABLE notas_credito ADD COLUMN estado TEXT DEFAULT 'DISPONIBLE'")
@@ -163,6 +165,11 @@ def validar_fecha_tasa(fecha):
         return datetime.datetime.strptime(fecha, '%Y-%m-%d').date().isoformat() == fecha
     except (TypeError, ValueError):
         return False
+
+
+def fecha_sistema_venezuela():
+    """Fecha operativa del sistema en zona Venezuela, independiente de UTC del servidor."""
+    return datetime.datetime.now(ZoneInfo('America/Caracas')).strftime('%Y-%m-%d')
 
 def tiene_permiso_en_sesion(permiso):
     """Comprueba permisos de la sesión para operaciones sensibles."""
@@ -348,7 +355,6 @@ def corregir_ultima_carga(producto_id):
         precio_actual = safe_float(precio_usd) if precio_usd is not None and precio_usd != '' else None
         if precio_actual is not None and precio_actual < 0:
             return jsonify({'error': 'El precio objetivo no puede ser negativo.'}), 400
-
         carga = None
         if movimiento_id:
             carga = conn.execute("""SELECT id, consecutivo, fecha_registro, tipo, producto_id, cantidad, costo_unitario,
@@ -458,6 +464,27 @@ def api_ventas():
             ahora = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             d = request.json
             c_nombre = d.get('cliente_nombre', '').strip()
+
+            # La tasa siempre es la del día operativo del sistema.
+            # La fecha del documento solo puede ser personalizada por un administrador.
+            hoy_sistema = fecha_sistema_venezuela()
+            es_admin_facturacion = es_administrador_actual()
+            fecha_facturacion = d.get('fecha_facturacion', hoy_sistema) if es_admin_facturacion else hoy_sistema
+            if not validar_fecha_tasa(fecha_facturacion):
+                return jsonify({'error': 'La fecha de facturación no es válida. Selecciona una fecha real.'}), 400
+
+            tasa_hoy = conn.execute(
+                "SELECT fecha, hora, binance, euro_bcv FROM historico_tasas WHERE fecha = ? ORDER BY hora DESC LIMIT 1",
+                (hoy_sistema,)
+            ).fetchone()
+            if not tasa_hoy:
+                return jsonify({'error': 'No existe una tasa oficial registrada para el día del sistema.'}), 400
+
+            tasa_euro_sistema = float(tasa_hoy['euro_bcv'] or 0)
+            tasa_binance_sistema = float(tasa_hoy['binance'] or 0)
+            brecha_sistema = (tasa_binance_sistema / tasa_euro_sistema) - 1 if tasa_euro_sistema > 0 else 0
+            if tasa_euro_sistema <= 0:
+                return jsonify({'error': 'La tasa Euro BCV del día del sistema no es válida.'}), 400
             
             if not c_nombre: return jsonify({'error': 'El nombre del cliente es obligatorio'}), 400
             if not d.get('detalles'): return jsonify({'error': 'El carrito está vacío'}), 400
@@ -516,14 +543,16 @@ def api_ventas():
                 estado_nc = 'APLICADA' if saldo_usado_eur >= float(nota_credito['total_eur'] or 0) - 0.0001 else 'DISPONIBLE'
                 conn.execute('''UPDATE notas_credito SET saldo_usado_eur = ?, saldo_usado_bs = ?, estado = ? WHERE id = ?''',
                              (saldo_usado_eur, saldo_usado_bs, estado_nc, nc_id))
-            conn.execute('INSERT INTO ventas (consecutivo, fecha_registro, cliente_nombre, cliente_telefono, direccion_entrega, total_eur, total_bs, tasa_bcv_euro_aplicada, tasa_binance_aplicada, porcentaje_brecha_aplicado, estado, registrado_por, metodo_pago) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                          (consec_venta, ahora, c_nombre, d.get('cliente_telefono',''), d.get('env_direccion',''), total_eur, total_bs, safe_float(d.get('tasa_bcv_euro')), safe_float(d.get('tasa_binance')), safe_float(d.get('brecha_dia')), d.get('estado_semaforo','EMITIDA'), usuario_actual, d.get('metodo_pago', '')))
+            conn.execute('INSERT INTO ventas (consecutivo, fecha_registro, fecha_facturacion, cliente_nombre, cliente_telefono, direccion_entrega, total_eur, total_bs, tasa_bcv_euro_aplicada, tasa_binance_aplicada, porcentaje_brecha_aplicado, estado, registrado_por, metodo_pago) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                          (consec_venta, ahora, fecha_facturacion, c_nombre, d.get('cliente_telefono',''), d.get('env_direccion',''), total_eur, total_bs, tasa_euro_sistema, tasa_binance_sistema, brecha_sistema, d.get('estado_semaforo','EMITIDA'), usuario_actual, d.get('metodo_pago', '')))
             ult_mov = conn.execute('SELECT id FROM movimientos ORDER BY id DESC LIMIT 1').fetchone()
             num_m = (ult_mov[0] + 1) if ult_mov else 1
+            hora_movimiento = ahora.split(' ', 1)[1] if ' ' in ahora else '00:00:00'
+            fecha_movimiento = f"{fecha_facturacion} {hora_movimiento}"
             for item in d['detalles']:
                 consec_mov = f"MOV-{str(num_m).zfill(5)}"
                 conn.execute('''INSERT INTO movimientos (consecutivo, fecha_registro, tipo, producto_id, cantidad, costo_unitario, documento, registrado_por) VALUES (?,?,?,?,?,?,?,?)''',
-                              (consec_mov, ahora, 'Venta', item['producto_id'], safe_float(item['cantidad']), safe_float(item.get('precio_eur')), consec_venta, usuario_actual))
+                              (consec_mov, fecha_movimiento, 'Venta', item['producto_id'], safe_float(item['cantidad']), safe_float(item.get('precio_eur')), consec_venta, usuario_actual))
                 num_m += 1
                 
                 conn.execute('''INSERT INTO detalle_nota_entrega (consecutivo, producto_id, cantidad, descuento, precio_unitario_euro_snapshot, subtotal_euro_snapshot, total_euro_snapshot, precio_unitario_bs_snapshot, subtotal_bs_snapshot, total_bs_snapshot) VALUES (?,?,?,?,?,?,?,?,?,?)''',
@@ -697,8 +726,7 @@ def upload_tasas():
     f = request.files['file']
     usuario_actual = session.get('nombre', 'Sistema')
     try:
-        import openpyxl
-        wb = openpyxl.load_workbook(f, data_only=True)
+        import openpyxl        wb = openpyxl.load_workbook(f, data_only=True)
         sheet = wb.active
         conn = get_db_connection()
         inserted = 0
