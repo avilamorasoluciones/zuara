@@ -251,3 +251,40 @@ body {
         padding: 12px !important;
     }
 }
+
+
+/* Reportes corporativos ZUARA: vista previa alineada con las exportaciones. */
+#tabla-reporte-dinamica {
+    background: #ffffff;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 10px;
+}
+#tabla-reporte-dinamica thead th {
+    background: #111111 !important;
+    color: #ffffff !important;
+    font-weight: 700 !important;
+    border: 0 !important;
+    padding: 10px 8px !important;
+    white-space: nowrap;
+}
+#tabla-reporte-dinamica tbody td {
+    border: 0 !important;
+    padding: 8px !important;
+    color: #222222;
+    background: #ffffff;
+    vertical-align: middle;
+}
+#tabla-reporte-dinamica tbody tr:nth-child(even) td {
+    background: #f3f3f3 !important;
+}
+#tabla-reporte-dinamica tbody tr:hover td {
+    background: #ececec !important;
+}
+#tabla-reporte-dinamica tbody td.text-end {
+    text-align: right !important;
+}
+#tabla-reporte-dinamica tbody td.text-center {
+    text-align: center !important;
+}
