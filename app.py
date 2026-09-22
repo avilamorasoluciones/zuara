@@ -155,6 +155,15 @@ def safe_int(val):
     try: return int(val) if val else 0
     except: return 0
 
+def validar_fecha_tasa(fecha):
+    """Acepta únicamente fechas reales en formato ISO YYYY-MM-DD."""
+    if not isinstance(fecha, str):
+        return False
+    try:
+        return datetime.datetime.strptime(fecha, '%Y-%m-%d').date().isoformat() == fecha
+    except (TypeError, ValueError):
+        return False
+
 def tiene_permiso_en_sesion(permiso):
     """Comprueba permisos de la sesión para operaciones sensibles."""
     if not session.get('usuario_id'):
@@ -814,11 +823,14 @@ def api_crud(tabla, request, id=None):
                 conn.execute('INSERT INTO productos (categoria_id, proveedor_id, descripcion, unidad_medida, stock_minimo, precio_usd, estado, codigo_barras, foto, fecha_registro, registrado_por) VALUES (?,?,?,?,?,?,?,?,?,?,?)', 
                              (safe_int(d.get('categoria_id')) or None, safe_int(d.get('proveedor_id')) or None, d.get('descripcion',''), d.get('unidad_medida',''), safe_int(d.get('stock_minimo')), safe_float(d.get('precio_usd', 0)), d.get('estado','ACTIVO'), d.get('codigo_barras',''), d.get('foto',''), ahora, usuario_actual))
             elif tabla_db == 'historico_tasas':
+                fecha_tasa = d.get('fecha', '')
+                if not validar_fecha_tasa(fecha_tasa):
+                    return jsonify({'error': 'La fecha de la tasa no es válida. Selecciona una fecha real en formato DD/MM/AAAA.'}), 400
                 binance = safe_float(d.get('binance'))
                 euro = safe_float(d.get('euro_bcv'))
                 brecha = (binance / euro) - 1 if euro > 0 else 0
                 conn.execute('''INSERT INTO historico_tasas (fecha, hora, dolar_bcv, binance, bybit, dolar_promedio, euro_bcv, zelle, paypal, brecha, registrado_por) VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
-                              (d['fecha'], d['hora'], safe_float(d.get('dolar_bcv')), binance, safe_float(d.get('bybit')), safe_float(d.get('dolar_promedio')), euro, safe_float(d.get('zelle')), safe_float(d.get('paypal')), brecha, usuario_actual))
+                              (fecha_tasa, d['hora'], safe_float(d.get('dolar_bcv')), binance, safe_float(d.get('bybit')), safe_float(d.get('dolar_promedio')), euro, safe_float(d.get('zelle')), safe_float(d.get('paypal')), brecha, usuario_actual))
             elif tabla_db == 'historico_coberturas':
                 conn.execute('''INSERT INTO historico_coberturas (fecha_registro, rango_evaluado, fecha_pico_maximo, porcentaje_cobertura, factor_proteccion, registrado_por, estado) VALUES (?,?,?,?,?,?,?)''',
                               (ahora, d.get('rango_evaluado',''), d.get('fecha_pico_maximo',''), safe_float(d.get('porcentaje_cobertura')), safe_float(d.get('factor_proteccion')), usuario_actual, d.get('estado', 'ACTIVO')))
@@ -851,8 +863,11 @@ def api_crud(tabla, request, id=None):
                 conn.execute('UPDATE productos SET categoria_id=?, proveedor_id=?, descripcion=?, unidad_medida=?, stock_minimo=?, precio_usd=?, estado=?, codigo_barras=?, foto=? WHERE id=?', 
                              (safe_int(d.get('categoria_id')) or None, safe_int(d.get('proveedor_id')) or None, d.get('descripcion',''), d.get('unidad_medida',''), safe_int(d.get('stock_minimo')), safe_float(d.get('precio_usd', 0)), d.get('estado','ACTIVO'), d.get('codigo_barras',''), d.get('foto',''), id))
             elif tabla_db == 'historico_tasas':
+                fecha_tasa = d.get('fecha', '')
+                if not validar_fecha_tasa(fecha_tasa):
+                    return jsonify({'error': 'La fecha de la tasa no es válida. Selecciona una fecha real en formato DD/MM/AAAA.'}), 400
                 conn.execute('UPDATE historico_tasas SET fecha=?, hora=?, dolar_bcv=?, binance=?, bybit=?, dolar_promedio=?, euro_bcv=?, zelle=?, paypal=?, brecha=? WHERE id=?', 
-                             (d['fecha'], d['hora'], safe_float(d.get('dolar_bcv')), safe_float(d.get('binance')), safe_float(d.get('bybit')), safe_float(d.get('dolar_promedio')), safe_float(d.get('euro_bcv')), safe_float(d.get('zelle')), safe_float(d.get('paypal')), (safe_float(d.get('binance')) / safe_float(d.get('euro_bcv'))) - 1 if safe_float(d.get('euro_bcv')) > 0 else 0, id))
+                             (fecha_tasa, d['hora'], safe_float(d.get('dolar_bcv')), safe_float(d.get('binance')), safe_float(d.get('bybit')), safe_float(d.get('dolar_promedio')), safe_float(d.get('euro_bcv')), safe_float(d.get('zelle')), safe_float(d.get('paypal')), (safe_float(d.get('binance')) / safe_float(d.get('euro_bcv'))) - 1 if safe_float(d.get('euro_bcv')) > 0 else 0, id))
             elif tabla_db == 'historico_coberturas':
                 conn.execute('''UPDATE historico_coberturas
                                 SET rango_evaluado=?, fecha_pico_maximo=?, porcentaje_cobertura=?,
