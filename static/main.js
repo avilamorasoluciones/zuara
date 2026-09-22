@@ -1004,13 +1004,13 @@ function actualizarSelectorProductosVenta(productos) {
         });
     }
 
-    if (input && !input.dataset.productosVentaListener) {
-        input.dataset.productosVentaListener = '1';
-        input.addEventListener('input', () => pintarResultados(input.value));
-        input.addEventListener('focus', () => pintarResultados(input.value));
+    if (input) {
+        // Se reasignan los handlers en cada preparación porque la lista de productos
+        // puede cambiar al consultar otra fecha de facturación.
+        input.oninput = () => pintarResultados(input.value);
+        input.onfocus = () => pintarResultados(input.value);
+        input.value = '';
     }
-
-    if (input) input.value = '';
     if (resultados) resultados.classList.add('d-none');
 }
 
