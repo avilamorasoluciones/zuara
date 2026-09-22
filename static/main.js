@@ -550,7 +550,7 @@ function formatearFechaTasa(fecha) {
 
 function validarFechaTasa(fecha) {
     const texto = String(fecha || '').trim();
-    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(texto)) return false;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(texto)) return false;
     const [anio, mes, dia] = texto.split('-').map(Number);
     const prueba = new Date(Date.UTC(anio, mes - 1, dia));
     return prueba.getUTCFullYear() === anio && prueba.getUTCMonth() === mes - 1 && prueba.getUTCDate() === dia;
@@ -1895,8 +1895,13 @@ window.addEventListener('load', async () => {
     'use strict';
 
     function fechaHoyLocal() {
-        const n = new Date();
-        return n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0') + '-' + String(n.getDate()).padStart(2, '0');
+        // La fecha operativa de ZUARA es Venezuela, no la zona horaria del navegador.
+        return new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'America/Caracas',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+        }).format(new Date());
     }
 
     function asegurarSelectorFecha() {
