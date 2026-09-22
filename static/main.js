@@ -1246,6 +1246,35 @@ async function guardarFormulario(e, m) {
         let horaFormat = hora;
         if(horaFormat.length === 5) horaFormat += ":00";
 
+        // Evitar registros inútiles: si ya existe una tasa para la misma fecha,
+        // preguntamos antes de crear otra. Si los valores Binance + Euro son
+        // exactamente iguales, se considera un duplicado y no se guarda.
+        const tasasMismaFecha = (dataGlobal.tasas || []).filter(t => String(t.fecha || '') === fecha);
+        if (tasasMismaFecha.length) {
+            const duplicadaExacta = tasasMismaFecha.some(t =>
+                Number(t.binance || 0) === Number(binance || 0) &&
+                Number(t.euro_bcv || 0) === Number(euro || 0)
+            );
+
+            if (duplicadaExacta) {
+                alert(
+                    "⚠️ ESTA TASA YA EXISTE\n\n" +
+                    "Ya existe un registro para " + formatearFechaTasa(fecha) +
+                    " con el mismo Binance P2P y Euro BCV.\n\n" +
+                    "No se guardará otra vez para evitar duplicados."
+                );
+                return;
+            }
+
+            const continuar = confirm(
+                "ℹ️ YA EXISTE UNA TASA PARA ESTA FECHA\n\n" +
+                "La fecha " + formatearFechaTasa(fecha) + " ya tiene uno o más registros, " +
+                "pero los valores ingresados son diferentes.\n\n" +
+                "¿Deseas registrar esta nueva tasa?"
+            );
+            if (!continuar) return;
+        }
+
         payload = {
             fecha,
             hora: horaFormat,
