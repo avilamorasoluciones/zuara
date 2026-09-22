@@ -543,13 +543,27 @@ async function eliminarUsuario(id) {
 
 // ----- FUNCIONES DE TASAS, COBERTURAS Y LISTA DE PRECIOS ----- //
 
+function formatearFechaTasa(fecha) {
+    const texto = String(fecha || '').trim();
+    const match = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(texto);
+    return match ? `${match[3]}/${match[2]}/${match[1]}` : texto;
+}
+
+function validarFechaTasa(fecha) {
+    const texto = String(fecha || '').trim();
+    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(texto)) return false;
+    const [anio, mes, dia] = texto.split('-').map(Number);
+    const prueba = new Date(Date.UTC(anio, mes - 1, dia));
+    return prueba.getUTCFullYear() === anio && prueba.getUTCMonth() === mes - 1 && prueba.getUTCDate() === dia;
+}
+
 function renderTablaTasas() {
     let tb = document.querySelector('#tabla-tasas tbody');
     if(!tb) return;
     tb.innerHTML = '';
     dataGlobal.tasas.forEach(t => {
         let btnAcc = `<button class="btn-action btn-edit me-1" onclick="llenarModalEditar('tasas', '${encodeURIComponent(JSON.stringify(t))}')"><i class="fa-solid fa-pen"></i></button><button class="btn-action btn-delete" onclick="eliminarRegistro('tasas', ${t.id})"><i class="fa-solid fa-trash"></i></button>`;
-        tb.innerHTML += `<tr><td>${t.fecha} <br> <small class="text-muted">${t.hora}</small></td><td class="fw-bold">Bs ${parseFloat(t.dolar_bcv||0).toFixed(2)}</td><td class="fw-bold text-theme-solid">Bs ${parseFloat(t.euro_bcv||0).toFixed(2)}</td><td class="fw-bold text-warning">Bs ${parseFloat(t.binance||0).toFixed(2)}</td><td class="text-muted">Bs ${parseFloat(t.bybit||0).toFixed(2)}</td><td class="text-muted">Bs ${parseFloat(t.dolar_promedio||0).toFixed(2)}</td><td class="text-muted">Bs ${parseFloat(t.zelle||0).toFixed(2)}</td><td class="text-muted">Bs ${parseFloat(t.paypal||0).toFixed(2)}</td><td class="fw-bolder ${(t.brecha||0) > 0 ? 'text-danger':'text-success'}">${((t.brecha||0)*100).toFixed(2)}%</td><td>${btnAcc}</td></tr>`;
+        tb.innerHTML += `<tr><td>${formatearFechaTasa(t.fecha)} <br> <small class="text-muted">${t.hora}</small></td><td class="fw-bold">Bs ${parseFloat(t.dolar_bcv||0).toFixed(2)}</td><td class="fw-bold text-theme-solid">Bs ${parseFloat(t.euro_bcv||0).toFixed(2)}</td><td class="fw-bold text-warning">Bs ${parseFloat(t.binance||0).toFixed(2)}</td><td class="text-muted">Bs ${parseFloat(t.bybit||0).toFixed(2)}</td><td class="text-muted">Bs ${parseFloat(t.dolar_promedio||0).toFixed(2)}</td><td class="text-muted">Bs ${parseFloat(t.zelle||0).toFixed(2)}</td><td class="text-muted">Bs ${parseFloat(t.paypal||0).toFixed(2)}</td><td class="fw-bolder ${(t.brecha||0) > 0 ? 'text-danger':'text-success'}">${((t.brecha||0)*100).toFixed(2)}%</td><td>${btnAcc}</td></tr>`;
     });
 }
 
@@ -1173,6 +1187,12 @@ async function guardarFormulario(e, m) {
 
         if (!fecha || !binance || !euro || !hora) {
             alert('Completa los campos obligatorios: Fecha, Binance P2P, Euro BCV y Hora.');
+            return;
+        }
+
+        if (!validarFechaTasa(fecha)) {
+            alert('La fecha no es válida. Selecciona una fecha real en formato DD/MM/AAAA.');
+            document.getElementById('t_fecha')?.focus();
             return;
         }
 
