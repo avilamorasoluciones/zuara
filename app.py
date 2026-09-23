@@ -114,7 +114,7 @@ def init_db():
         # Snapshot de los datos de la nota de entrega para que los reportes históricos
         # conserven exactamente la información utilizada al momento de facturar.
         columnas_venta_snapshot = [
-            'cliente_documento', 'cliente_correo', 'pais', 'estado',
+            'cliente_documento', 'cliente_correo', 'pais', 'estado_cliente',
             'punto_referencia', 'coordenadas', 'tipo_envio'
         ]
         for col in columnas_venta_snapshot:
@@ -554,7 +554,7 @@ def api_ventas():
                 estado_nc = 'APLICADA' if saldo_usado_eur >= float(nota_credito['total_eur'] or 0) - 0.0001 else 'DISPONIBLE'
                 conn.execute('''UPDATE notas_credito SET saldo_usado_eur = ?, saldo_usado_bs = ?, estado = ? WHERE id = ?''',
                              (saldo_usado_eur, saldo_usado_bs, estado_nc, nc_id))
-            conn.execute('INSERT INTO ventas (consecutivo, fecha_registro, fecha_facturacion, cliente_nombre, cliente_telefono, cliente_documento, cliente_correo, pais, estado, direccion_entrega, punto_referencia, coordenadas, tipo_envio, total_eur, total_bs, tasa_bcv_euro_aplicada, tasa_binance_aplicada, porcentaje_brecha_aplicado, estado, registrado_por, metodo_pago) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            conn.execute('INSERT INTO ventas (consecutivo, fecha_registro, fecha_facturacion, cliente_nombre, cliente_telefono, cliente_documento, cliente_correo, pais, estado_cliente, direccion_entrega, punto_referencia, coordenadas, tipo_envio, total_eur, total_bs, tasa_bcv_euro_aplicada, tasa_binance_aplicada, porcentaje_brecha_aplicado, estado, registrado_por, metodo_pago) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                           (
                               consec_venta, ahora, fecha_facturacion, c_nombre,
                               d.get('cliente_telefono',''), d.get('cliente_doc',''),
