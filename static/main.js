@@ -1862,7 +1862,8 @@ window.reporteActual = {
 };
 
 const ZUARA_REPORTES = {
-    ventas: { titulo: 'Reporte de ventas' },
+    ventas: { titulo: 'Reporte total de ventas' },
+    ventas_detalladas: { titulo: 'Reporte detallado de ventas' },
     lista_precios: { titulo: 'Lista de precios' },
     existencias: { titulo: 'EXISTENCIAS' },
     notas_credito: { titulo: 'Historial Notas de crédito' },
@@ -1949,42 +1950,95 @@ window.generarVistaPreviaReporte = async function() {
     const config = ZUARA_REPORTES[tipo] || { titulo: `Reporte de ${tipo}` };
     const titulo = config.titulo;
 
-    if (tipo === 'ventas') {
-        headers = ['FECHA','N° NOTA DE ENTREGA','CLIENTE','IDENTIFICACIÓN','CELULAR/TELÉFONO','CORREO ELECTRÓNICO','PAÍS','DIRECCIÓN DE ENTREGA','PUNTO DE REFERENCIA','COORDENADAS GOOGLES MAPS','ESTADO','TIPO DE ENVÍO','PRODUCTO','CANTIDAD','PRECIO EN EURO BCV','TOTALES EUROS','TOTALES BS','MÉTODO DE PAGO'];
+    if (tipo === 'ventas_detalladas' || tipo === 'ventas') {
+        const esDetallado = tipo === 'ventas_detalladas';
+        headers = esDetallado
+            ? ['FECHA','N° NOTA DE ENTREGA','CLIENTE','IDENTIFICACIÓN','CELULAR/TELÉFONO','CORREO ELECTRÓNICO','PAÍS','DIRECCIÓN DE ENTREGA','PUNTO DE REFERENCIA','COORDENADAS GOOGLES MAPS','ESTADO','TIPO DE ENVÍO','PRODUCTO','CANTIDAD','PRECIO EN EURO BCV','%DESCUENTO','TOTALES EUROS','TOTALES BS','MÉTODO DE PAGO']
+            : ['FECHA','N° NOTA DE ENTREGA','CLIENTE','IDENTIFICACIÓN','CELULAR/TELÉFONO','CORREO ELECTRÓNICO','PAÍS','DIRECCIÓN DE ENTREGA','PUNTO DE REFERENCIA','COORDENADAS GOOGLES MAPS','ESTADO','TIPO DE ENVÍO','TOTAL EURO','TOTAL BS','TOTAL PRODUCTOS','TASA EURO DEL DÍA','MÉTODO DE PAGO'];
+
         const filtrado = dataGlobal.ventas.filter(v => {
             const fecha = v.fecha_facturacion || (v.fecha_registro || '').split(' ')[0];
             return reporteFechaValida(fecha, desde, hasta);
         });
-        const detalleResultados = await Promise.all(filtrado.map(async v => {
+
+        const resultados = await Promise.all(filtrado.map(async v => {
             let items = [];
             try {
-                const r = await fetch(`/api/ventas/detalles/${encodeURIComponent(v.consecutivo)}`);
-                if (r.ok) items = await r.json();
-            } catch (_) {}
-            const cli = dataGlobal.clientes.find(c => c.nombre === v.cliente_nombre) || {};
-            if (!items.length) items = [{}];
-            return items.map(it => [
-                v.fecha_facturacion || (v.fecha_registro || '').split(' ')[0],
+                const respuesta = await fetch(`/api/ventas/detalles/${encodeURIComponent(v.consecutivo)}`, {
+                    cache: 'no-store',
+                    credentials: 'same-origin'
+                });
+                if (respuesta.ok) items = await respuesta.json();
+            } catch (error) {
+                console.error('No se pudieron cargar los detalles de la venta', v.consecutivo, error);
+            }
+
+            // Ventas antiguas pueden no tener el snapshot de cliente. En ese caso
+            // usamos el registro actual como respaldo.
+            const cli = dataGlobal.clientes.find(c => String(c.nombre || '').trim() === String(v.cliente_nombre || '').trim()) || {};
+            const fecha = v.fecha_facturacion || (v.fecha_registro || '').split(' ')[0];
+            const documento = v.cliente_documento || cli.documento || '-';
+            const telefono = v.cliente_telefono || cli.telefono || '-';
+            const correo = v.cliente_correo || cli.correo || '-';
+            const pais = v.pais || cli.pais || '-';
+            const direccion = v.direccion_entrega || cli.direccion_entrega || '-';
+            const referencia = v.punto_referencia || cli.punto_referencia || '-';
+            const coordenadas = v.coordenadas || cli.coordenadas || '-';
+            const estado = v.estado || '-';
+            const tipoEnvio = v.tipo_envio || cli.tipo_envio || '-';
+            const metodoPago = v.metodo_pago || '-';
+            const tasaEuro = Number(v.tasa_bcv_euro_aplicada || 0);
+
+            if (esDetallado) {
+                if (!items.length) {
+                    return [[fecha,v.consecutivo,v.cliente_nombre,documento,telefono,correo,pais,direccion,referencia,coordenadas,estado,tipoEnvio,'-',0,0,0,0,0,metodoPago]];
+                }
+                return items.map(it => [
+                    fecha,
+                    v.consecutivo,
+                    v.cliente_nombre,
+                    documento,
+                    telefono,
+                    correo,
+                    pais,
+                    direccion,
+                    referencia,
+                    coordenadas,
+                    estado,
+                    tipoEnvio,
+                    it.producto_nombre || '-',
+                    Number(it.cantidad || 0),
+                    Number(it.precio_unitario_euro_snapshot || 0),
+                    Number(it.descuento || 0),
+                    Number(it.total_euro_snapshot || 0),
+                    Number(it.total_bs_snapshot || 0),
+                    metodoPago
+                ]);
+            }
+
+            const totalProductos = items.reduce((total, it) => total + Number(it.cantidad || 0), 0);
+            return [[
+                fecha,
                 v.consecutivo,
                 v.cliente_nombre,
-                cli.documento || v.cliente_doc || '-',
-                v.cliente_telefono || cli.telefono || '-',
-                cli.correo || '-',
-                cli.pais || '-',
-                v.direccion_entrega || cli.direccion_entrega || '-',
-                cli.punto_referencia || '-',
-                cli.coordenadas || '-',
-                v.estado || '-',
-                cli.tipo_envio || '-',
-                it.producto_nombre || '-',
-                Number(it.cantidad || 0),
-                Number(it.precio_unitario_euro_snapshot || 0),
-                Number(it.total_euro_snapshot || 0),
-                Number(it.total_bs_snapshot || 0),
-                v.metodo_pago || '-'
-            ]);
+                documento,
+                telefono,
+                correo,
+                pais,
+                direccion,
+                referencia,
+                coordenadas,
+                estado,
+                tipoEnvio,
+                Number(v.total_eur || 0),
+                Number(v.total_bs || 0),
+                totalProductos,
+                tasaEuro,
+                metodoPago
+            ]];
         }));
-        rows = detalleResultados.flat();
+
+        rows = resultados.flat();
     } else if (tipo === 'devoluciones_venta' || tipo === 'devoluciones_compra') {
         headers = ['Fecha','Consecutivo','Movimiento','Producto','Cant. Devuelta','Doc. Afectado','Responsable'];
         const movimiento = tipo === 'devoluciones_venta' ? 'Devolución por venta' : 'Devolución por compra';
