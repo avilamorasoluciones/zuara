@@ -111,6 +111,14 @@ def init_db():
         safe_alter(conn, "ALTER TABLE ventas ADD COLUMN fecha_facturacion TEXT DEFAULT ''")
         conn.execute("UPDATE ventas SET fecha_facturacion = split_part(fecha_registro, ' ', 1) WHERE COALESCE(fecha_facturacion, '') = ''")
         safe_alter(conn, "ALTER TABLE ventas ADD COLUMN total_bs REAL DEFAULT 0")
+        # Snapshot de los datos de la nota de entrega para que los reportes históricos
+        # conserven exactamente la información utilizada al momento de facturar.
+        columnas_venta_snapshot = [
+            'cliente_documento', 'cliente_correo', 'pais', 'estado',
+            'punto_referencia', 'coordenadas', 'tipo_envio'
+        ]
+        for col in columnas_venta_snapshot:
+            safe_alter(conn, f"ALTER TABLE ventas ADD COLUMN {col} TEXT DEFAULT ''")
         safe_alter(conn, "ALTER TABLE notas_credito ADD COLUMN saldo_usado_eur REAL DEFAULT 0")
         safe_alter(conn, "ALTER TABLE notas_credito ADD COLUMN estado TEXT DEFAULT 'DISPONIBLE'")
 
@@ -546,8 +554,18 @@ def api_ventas():
                 estado_nc = 'APLICADA' if saldo_usado_eur >= float(nota_credito['total_eur'] or 0) - 0.0001 else 'DISPONIBLE'
                 conn.execute('''UPDATE notas_credito SET saldo_usado_eur = ?, saldo_usado_bs = ?, estado = ? WHERE id = ?''',
                              (saldo_usado_eur, saldo_usado_bs, estado_nc, nc_id))
-            conn.execute('INSERT INTO ventas (consecutivo, fecha_registro, fecha_facturacion, cliente_nombre, cliente_telefono, direccion_entrega, total_eur, total_bs, tasa_bcv_euro_aplicada, tasa_binance_aplicada, porcentaje_brecha_aplicado, estado, registrado_por, metodo_pago) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                          (consec_venta, ahora, fecha_facturacion, c_nombre, d.get('cliente_telefono',''), d.get('env_direccion',''), total_eur, total_bs, tasa_euro_sistema, tasa_binance_sistema, brecha_sistema, d.get('estado_semaforo','EMITIDA'), usuario_actual, d.get('metodo_pago', '')))
+            conn.execute('INSERT INTO ventas (consecutivo, fecha_registro, fecha_facturacion, cliente_nombre, cliente_telefono, cliente_documento, cliente_correo, pais, estado, direccion_entrega, punto_referencia, coordenadas, tipo_envio, total_eur, total_bs, tasa_bcv_euro_aplicada, tasa_binance_aplicada, porcentaje_brecha_aplicado, estado, registrado_por, metodo_pago) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                          (
+                              consec_venta, ahora, fecha_facturacion, c_nombre,
+                              d.get('cliente_telefono',''), d.get('cliente_doc',''),
+                              d.get('cliente_correo',''), d.get('env_pais','Venezuela'),
+                              d.get('env_estado',''), d.get('env_direccion',''),
+                              d.get('env_referencia',''), d.get('env_coordenadas',''),
+                              d.get('env_tipo',''), total_eur, total_bs,
+                              tasa_euro_sistema, tasa_binance_sistema, brecha_sistema,
+                              d.get('estado_semaforo','EMITIDA'), usuario_actual,
+                              d.get('metodo_pago', '')
+                          ))
             ult_mov = conn.execute('SELECT id FROM movimientos ORDER BY id DESC LIMIT 1').fetchone()
             num_m = (ult_mov[0] + 1) if ult_mov else 1
             hora_movimiento = ahora.split(' ', 1)[1] if ' ' in ahora else '00:00:00'
